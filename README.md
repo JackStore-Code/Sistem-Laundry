@@ -38,13 +38,3 @@ Program ini menerapkan 4 pilar utama Object-Oriented Programming secara terstruk
 * **Hapus & Reset Form:** Fitur menghapus data pesanan dan membersihkan form input.
 
 ---
-
-## Cara Menjalankan Program
-
-Aplikasi ini tidak memerlukan instalasi web server (seperti XAMPP). Cukup pastikan Java sudah terpasang di komputer.
-
-Jalankan perintah berikut di terminal:
-
-```bash
-java LaundryApp.java
-```
