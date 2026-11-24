@@ -5,6 +5,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -1045,18 +1046,17 @@ class TabelPesanan extends JTable {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         setColumnSelectionAllowed(false);
         setAutoCreateRowSorter(false);
-        setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        // AUTO_RESIZE_LAST_COLUMN: kolom pertama memakai lebar preferred apa adanya
+        // (JTable hanya membagi sisa ruang ke kolom terakhir), sehingga ID, Nama,
+        // Telepon, dan Tanggal tidak pernah terpotong.
+        setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         setBorder(new EmptyBorder(0, 0, 0, 0));
-
-        int[] lebar = {76, 100, 88, 58, 70, 60, 75, 82, 114, 82, 40};
-        for (int i = 0; i < lebar.length && i < getColumnModel().getColumnCount(); i++) {
-            getColumnModel().getColumn(i).setPreferredWidth(lebar[i]);
-        }
 
         getTableHeader().setReorderingAllowed(false);
         getTableHeader().setPreferredSize(new Dimension(0, 44));
         getTableHeader().setDefaultRenderer(new KepalaTabel());
 
+        // Renderer dipasang memakai indeks model, jadi harus sebelum kolom dibuang.
         TableCellRenderer biasa = new SelTabel(Tema.TEKS, Tema.TABEL, 18);
         TableCellRenderer redup = new SelTabel(Tema.TEKS_ABU, Tema.TABEL, 18);
         TableCellRenderer tebal = new SelTabel(Tema.TEKS, Tema.TABEL_TEBAL, 18);
@@ -1064,13 +1064,33 @@ class TabelPesanan extends JTable {
         setDefaultRenderer(String.class, biasa);
         getColumnModel().getColumn(0).setCellRenderer(kode);
         getColumnModel().getColumn(2).setCellRenderer(redup);
-        getColumnModel().getColumn(3).setCellRenderer(redup);
         getColumnModel().getColumn(5).setCellRenderer(redup);
-        getColumnModel().getColumn(6).setCellRenderer(redup);
         getColumnModel().getColumn(7).setCellRenderer(tebal);
         getColumnModel().getColumn(9).setCellRenderer(redup);
         getColumnModel().getColumn(KOL_STATUS).setCellRenderer(new SelStatus());
-        getColumnModel().removeColumn(getColumnModel().getColumn(10));
+
+        // Kolom yang dibuang dari tampilan karena sudah terwakili kolom lain:
+        //  - "Jenis" (Kiloan/Satuan) terbaca dari satuan di kolom Jumlah ("9 kg" / "5 pcs")
+        //  - "Tarif" bisa dihitung dari Total / Jumlah
+        //  - kolom kosong terakhir (tombol aksi, dirender terpisah)
+        // Menyisakan 8 kolom supaya semuanya muat di panel kanan tanpa terpotong.
+        for (String judul : new String[]{"Jenis", "Tarif", ""}) {
+            for (int i = getColumnModel().getColumnCount() - 1; i >= 0; i--) {
+                if (judul.equals(String.valueOf(getColumnModel().getColumn(i).getHeaderValue()))) {
+                    getColumnModel().removeColumn(getColumnModel().getColumn(i));
+                }
+            }
+        }
+
+        // Lebar tiap kolom = lebar isi terpanjang + padding sel (18 kiri, 10 kanan).
+        // Dijumlah sengaja di bawah lebar panel kanan (~826 px pada window natural
+        // 1240 px) agar tidak ada elipsis pada Telepon, Total, Status, maupun Tanggal.
+        int[] lebar = {82, 134, 118, 88, 72, 100, 122, 100};
+        for (int i = 0; i < lebar.length && i < getColumnModel().getColumnCount(); i++) {
+            TableColumn kolom = getColumnModel().getColumn(i);
+            kolom.setPreferredWidth(lebar[i]);
+            kolom.setMinWidth(lebar[i]);
+        }
     }
 }
 
@@ -1507,44 +1527,42 @@ public class LaundryApp extends JFrame {
         lblSubForm.setAlignmentX(LEFT_ALIGNMENT);
 
         isi.add(barisJudul);
-        isi.add(Box.createVerticalStrut(2));
-
-        isi.add(Box.createVerticalStrut(7));
+        isi.add(Box.createVerticalStrut(8));
 
         isi.add(labelForm("Nama Pelanggan"));
-        isi.add(Box.createVerticalStrut(4));
+        isi.add(Box.createVerticalStrut(3));
         isi.add(txtNama);
         isi.add(pesanGalat(lblGalatNama));
-        isi.add(Box.createVerticalStrut(5));
+        isi.add(Box.createVerticalStrut(2));
 
         isi.add(labelForm("No. Telepon"));
-        isi.add(Box.createVerticalStrut(4));
+        isi.add(Box.createVerticalStrut(3));
         isi.add(txtTelepon);
         isi.add(pesanGalat(lblGalatTelepon));
-        isi.add(Box.createVerticalStrut(5));
+        isi.add(Box.createVerticalStrut(2));
 
         JPanel barisJenis = new JPanel(new BorderLayout(12, 0));
         barisJenis.setOpaque(false);
         barisJenis.add(labelForm("Jenis Layanan"), BorderLayout.WEST);
-        segJenis.setPreferredSize(new Dimension(164, 38));
+        segJenis.setPreferredSize(new Dimension(164, 34));
         barisJenis.add(segJenis, BorderLayout.EAST);
-        barisJenis.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        barisJenis.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
         isi.add(barisJenis);
-        isi.add(Box.createVerticalStrut(5));
+        isi.add(Box.createVerticalStrut(2));
 
         isi.add(labelForm("Pilihan Item"));
-        isi.add(Box.createVerticalStrut(4));
+        isi.add(Box.createVerticalStrut(3));
         isi.add(pilihItem);
 
         isi.add(lblLabelJumlah);
         lblLabelJumlah.setFont(Tema.LABEL);
         lblLabelJumlah.setForeground(Tema.TEKS_ABU);
         lblLabelJumlah.setAlignmentX(LEFT_ALIGNMENT);
-        isi.add(Box.createVerticalStrut(4));
+        isi.add(Box.createVerticalStrut(3));
         isi.add(txtJumlah);
         isi.add(pesanGalat(lblGalatJumlah));
 
-        isi.add(Box.createVerticalStrut(7));
+        isi.add(Box.createVerticalStrut(6));
 
         JPanel barisHarga = new JPanel(new BorderLayout());
         barisHarga.setOpaque(false);
@@ -1578,10 +1596,12 @@ public class LaundryApp extends JFrame {
         kotakTotal.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         isi.add(kotakTotal);
 
-        isi.add(Box.createVerticalStrut(6));
+        isi.add(Box.createVerticalStrut(5));
         btnUtama.pakaiPetunjukEnter();
+        btnUtama.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
         isi.add(btnUtama);
-        isi.add(Box.createVerticalStrut(6));
+        isi.add(Box.createVerticalStrut(5));
+        btnKedua.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         isi.add(btnKedua);
 
         JPanel bungkus = new JPanel(new BorderLayout());
@@ -1801,8 +1821,11 @@ public class LaundryApp extends JFrame {
                 int kolom = tabel.columnAtPoint(e.getPoint());
                 if (baris < 0 || kolom < 0) return;
                 int modelBaris = tabel.convertRowIndexToModel(baris);
+                // Bandingkan indeks MODEL, bukan indeks view: setelah beberapa kolom
+                // disembunyikan, posisi kolom Status di view bergeser.
+                int modelKolom = tabel.convertColumnIndexToModel(kolom);
                 Pesanan p = model.ambil(modelBaris);
-                if (kolom == TabelPesanan.KOL_STATUS) {
+                if (modelKolom == TabelPesanan.KOL_STATUS) {
                     tampilkanMenuStatus(p, tabel, e.getX(), e.getY());
                 } else {
                     tabel.setRowSelectionInterval(baris, baris);
