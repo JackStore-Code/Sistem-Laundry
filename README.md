@@ -50,7 +50,33 @@ Tampilan diperbarui dengan gaya *flat design* modern **tanpa library tambahan** 
 * **Lencana Status Berwarna:** Kolom status tampil sebagai *badge* pil berwarna (kuning = *Belum Diproses*, biru = *Proses*, hijau = *Selesai*).
 * **Format Rupiah Rapi:** Nominal dengan pemisah ribuan, contoh: `Rp 7.000`.
 * **Format Tanggal:** Kolom tanggal ditampilkan dalam format `dd-MM-yyyy`.
+* **Tabel Lebar Menyesuaikan Isi:** Lebar tiap kolom diukur dari teks terpanjang yang benar-benar ada (memakai renderer aslinya), lalu dipampatkan otomatis saat jendela diperkecil sehingga kolom *Tanggal* tidak pernah terdorong keluar layar. Teks yang belum muat bisa dibaca lewat *tooltip*.
 * **Font Segoe UI:** Tampilan teks lebih modern dan mudah dibaca.
+
+---
+
+## Integrasi WhatsApp (opsional)
+
+Aplikasi bisa mengirim pesan ke pelanggan lewat nomor WhatsApp toko yang terpisah
+dari nomor pribadi. Dua pemicu:
+
+1. **Notifikasi selesai** — otomatis saat status pesanan diubah menjadi *Selesai*.
+   Pelanggan menerima teks: cucian sudah selesai dan siap diambil.
+2. **Kirim Struk** — tombol yang muncul saat satu pesanan dipilih. Pelanggan
+   menerima invoice PDF bernama `Invoice Laundry - <Nama Pelanggan>.pdf`.
+
+Nomor pelanggan diisi dengan format `08xx`; sistem mengubahnya ke `628xx`
+secara otomatis. Nomor yang tidak valid tidak akan dikirim.
+
+Alamat server pengirim diatur di `config.properties`:
+
+```
+webhook.wa=http://localhost:5678/webhook/laundry-struk
+```
+
+Bila server pengirim tidak aktif, aplikasi tetap berjalan normal dan hanya
+menampilkan pemberitahuan singkat. Nomor pengirim tidak pernah membalas chat
+masuk, sehingga tidak mengganggu dan aman dari pembatasan WhatsApp.
 
 ---
 
@@ -63,3 +89,27 @@ javac -encoding UTF-8 LaundryApp.java
 java LaundryApp
 ```
 
+Tanpa argumen, aplikasi membuka jendela kasir seperti biasa. Untuk memeriksa
+logika tanpa membuka jendela (koneksi database, tarif, total, format tanggal):
+
+```
+java -cp ".;sqlite-jdbc-3.54.1.0.jar" LaundryApp --cek
+```
+
+Pemeriksaan itu akan mencetak lokasi database, jumlah pesanan per status,
+pendapatan dari pesanan *Selesai*, lalu `HASIL: OK`.
+
+
+### Menyalakan sistem sekali klik
+
+Setelah laptop dinyalakan ulang, jalankan skrip pembantu (tidak disertakan dalam
+repositori karena memuat pengaturan khusus mesin). Skrip itu:
+
+1. menyalakan Docker Desktop bila belum jalan dan menunggu sampai siap,
+2. menyalakan seluruh layanan pendukung (`evolution_db`, `evolution_redis`,
+   `evolution_api`, `doc_generator`, `n8n`),
+3. memeriksa apakah WhatsApp toko masih terhubung,
+4. membuka aplikasi kasir.
+
+Bila WhatsApp ditandai belum terhubung, aplikasi tetap jalan tetapi notifikasi
+dan invoice tidak terkirim sampai sesi WhatsApp ditautkan ulang.

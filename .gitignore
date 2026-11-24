@@ -23,3 +23,13 @@ sistem laudry
 # OS
 Thumbs.db
 .DS_Store
+
+# Hasil uji asap / build lokal (dev)
+.build/
+.smoke/
+
+# Konfigurasi lokal (berisi kunci API) - pakai config.properties.example
+config.properties
+
+# Skrip lokal untuk mesin ini (berisi path khusus laptop)
+nyalakan.bat

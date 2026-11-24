@@ -1029,6 +1029,7 @@ class KartuStatistik extends Kartu {
 
 class TabelPesanan extends JTable {
     static final int KOL_STATUS = 8;
+    static final int KOL_TOTAL = 7;
 
     TabelPesanan(ModelPesanan model) {
         super(model);
@@ -1046,10 +1047,14 @@ class TabelPesanan extends JTable {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         setColumnSelectionAllowed(false);
         setAutoCreateRowSorter(false);
-        // AUTO_RESIZE_LAST_COLUMN: kolom pertama memakai lebar preferred apa adanya
-        // (JTable hanya membagi sisa ruang ke kolom terakhir), sehingga ID, Nama,
-        // Telepon, dan Tanggal tidak pernah terpotong.
+        // AUTO_RESIZE_LAST_COLUMN: lebar pref/larangan di bawah dihormati apa adanya
+        // (JTable hanya membagi sisa ruang ke kolom terakhir). Sebelumnya memakai
+        // lebar TETAP, sehingga saat jendela diperkecil (1120 px) total kolom (819)
+        // melebihi tabel (706) dan kolom Tanggal terdorong keluar tanpa scrollbar.
         setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        // Kolom yang sempit (mis. saat jendela diperkecil) tetap bisa dibaca lewat
+        // tooltip berisi teks utuh sel tersebut.
+        ToolTipManager.sharedInstance().registerComponent(this);
         setBorder(new EmptyBorder(0, 0, 0, 0));
 
         getTableHeader().setReorderingAllowed(false);
@@ -1082,16 +1087,134 @@ class TabelPesanan extends JTable {
             }
         }
 
-        // Lebar tiap kolom = lebar isi terpanjang + padding sel (18 kiri, 10 kanan).
-        // Dijumlah sengaja di bawah lebar panel kanan (~826 px pada window natural
-        // 1240 px) agar tidak ada elipsis pada Telepon, Total, Status, maupun Tanggal.
-        int[] lebar = {82, 134, 118, 88, 72, 100, 122, 100};
-        for (int i = 0; i < lebar.length && i < getColumnModel().getColumnCount(); i++) {
+        // Tinggi baris tabel ikut tinggi panel yang tersedia, jadi tidak ada
+        // hamparan putih kosong di bawah baris terakhir saat data masih sedikit.
+        pakaiTinggiPenuh();
+
+        // Lebar kolom diukur dari isi tabel, lihat sesuaikanLebar().
+        sesuaikanLebar();
+    }
+
+    private boolean tinggiPenuh = true;
+
+    void setTinggiPenuh(boolean penuh) {
+        tinggiPenuh = penuh;
+        pakaiTinggiPenuh();
+    }
+
+    // Membagi tinggi viewport ke jumlah baris; hanya berlaku saat data sedikit
+    // (bars < 12) dan lewat batas baris normal (54 px). Saat data banyak,
+    // tinggi baris kembali normal dan scrollbar vertikal mengambil alih.
+    private void pakaiTinggiPenuh() {
+        int baris = getRowCount();
+        boolean penuh = tinggiPenuh && baris > 0 && baris < 12;
+        setFillsViewportHeight(penuh);
+        if (!penuh) {
+            setRowHeight(54);
+            return;
+        }
+        // Dua kali ditunda: percobaan pertama kadang masih memakai tinggi viewport
+        // layout lama (saat jendela baru dibuka atau datanya baru dimuat).
+        SwingUtilities.invokeLater(() -> {
+            hitungTinggiBaris();
+            SwingUtilities.invokeLater(this::hitungTinggiBaris);
+        });
+    }
+
+    private void hitungTinggiBaris() {
+        int baris = getRowCount();
+        if (!(tinggiPenuh && baris > 0 && baris < 12)) { setRowHeight(54); return; }
+        int tinggiView = getParent() == null ? 0 : getParent().getHeight();
+        if (tinggiView <= 0) return;
+        setRowHeight(Math.max(54, Math.min(110, tinggiView / baris)));
+    }
+
+    // Kolom yang sempit (mis. saat jendela diperkecil) tetap bisa dibaca lewat tooltip.
+    @Override
+    public String getToolTipText(MouseEvent e) {
+        int baris = rowAtPoint(e.getPoint());
+        int kolom = columnAtPoint(e.getPoint());
+        if (baris < 0 || kolom < 0) return null;
+        Object nilai = getValueAt(baris, kolom);
+        return nilai == null ? null : nilai.toString();
+    }
+
+    // Lebar kolom diambil dari renderer aslinya: lebar teks isi + padding sel,
+    // sehingga saat data berubah (mis. ada nomor telepon lebih panjang) kolomnya
+    // ikut melebar sendiri dan tidak pernah terpotong elipsis.
+    // Nilai ini hanya preferensi: saat jendela mengecil JTable memampatkan kolom
+    // sampai lebar minimum, dan saat melebar sisa ruang masuk ke kolom terakhir.
+    void sesuaikanLebar() {
+        int[] minimum = {84, 84, 88, 54, 44, 86, 104, 88};
+        List<Integer> perlu = new ArrayList<>();
+        int totalMin = 0, totalPerlu = 0;
+        for (int i = 0; i < getColumnModel().getColumnCount(); i++) {
+            int alami = lebarAlami(i);
+            int min = Math.min(minimum[Math.min(i, minimum.length - 1)], alami);
+            perlu.add(alami);
+            totalMin += min;
+            totalPerlu += alami;
+        }
+
+        // Sisakan ruang untuk scrollbar vertikal (10 px) saat tabel perlu di-scroll.
+        int tersedia = getParent() == null ? getWidth() : getParent().getWidth();
+        if (tersedia <= 0) tersedia = totalPerlu;
+        int ruang = Math.max(0, tersedia - 10);
+
+        // Bila total lebar minimum sudah melebihi ruang (mis. jendela diperkecil ke
+        // minimum 1120 px), kolom dipampatkan proporsional. Tanpa ini kolom Tanggal
+        // terdorong keluar layar karena horizontal scrollbar JScrollPane dimatikan.
+        // Nominal (Total) tidak pernah dipampatkan karena angka uang harus terbaca utuh.
+        if (totalMin > ruang) {
+            int tetap = perlu.get(KOL_TOTAL);
+            int sisa = Math.max(0, ruang - tetap);
+            int sisaMin = 0;
+            for (int i = 0; i < perlu.size(); i++) {
+                if (i != KOL_TOTAL) sisaMin += Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
+            }
+            double skala = sisaMin == 0 ? 0 : (double) sisa / sisaMin;
+            for (int i = 0; i < getColumnModel().getColumnCount(); i++) {
+                TableColumn kolom = getColumnModel().getColumn(i);
+                int min = Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
+                int hasil = i == KOL_TOTAL ? tetap : Math.max(46, (int) Math.floor(min * skala));
+                kolom.setMinWidth(hasil);
+                kolom.setPreferredWidth(hasil);
+            }
+            return;
+        }
+
+        for (int i = 0; i < getColumnModel().getColumnCount(); i++) {
             TableColumn kolom = getColumnModel().getColumn(i);
-            kolom.setPreferredWidth(lebar[i]);
-            kolom.setMinWidth(lebar[i]);
+            int min = Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
+            kolom.setMinWidth(min);
+            kolom.setPreferredWidth(perlu.get(i));
         }
     }
+
+    // Lebar paling pas untuk sebuah kolom: lebar teks sel terpanjang (memakai
+    // renderer aslinya) ditambah padding sel + 4 px cadangan.
+    private int lebarAlami(int kolom) {
+        TableCellRenderer renderer = getCellRenderer(0, kolom);
+        if (renderer == null) return 96;
+        int terlebar = lebarTeks(getTableHeader().getDefaultRenderer(), getColumnName(kolom));
+        for (int baris = 0; baris < Math.min(getRowCount(), 200); baris++) {
+            terlebar = Math.max(terlebar, lebarTeks(renderer, getValueAt(baris, kolom)));
+        }
+        return Math.min(terlebar + 4, 260);
+    }
+
+    private int lebarTeks(TableCellRenderer renderer, Object nilai) {
+        if (renderer == null) return 0;
+        Component c = renderer.getTableCellRendererComponent(
+                this, nilai, false, false, 0, 0);
+        if (c == null) return 0;
+        // Lebar "preferred" JLabel tidak menghitung padding border kiri-kanan,
+        // padahal isi sel dibuat & diukur dengan border tersebut. Bila border ikut
+        // dimasukkan, pil status (border 18 kiri + 10 kanan + pil) bisa terpotong.
+        Insets inset = c instanceof JComponent ? ((JComponent) c).getInsets() : new Insets(0, 0, 0, 0);
+        return c.getPreferredSize().width + inset.left + inset.right;
+    }
+
 }
 
 class KepalaTabel extends DefaultTableCellRenderer {
@@ -1154,6 +1277,19 @@ class SelStatus extends JPanel implements TableCellRenderer {
         return this;
     }
 
+    // Lencana memakai padding yang menyesuaikan lebar kolom: saat kolom sempit
+    // (jendela diperkecil) padding menyusut supaya teks status tidak terpotong.
+    static final int PAD_PIL = 22;
+    static final int PAD_KIRI = 18;
+    static final int TIINGGI_PIL = 24;
+
+    @Override
+    public Dimension getPreferredSize() {
+        Font f = Tema.f(11f, true);
+        FontMetrics fm = getFontMetrics(f);
+        return new Dimension(fm.stringWidth(status) + PAD_PIL + PAD_KIRI + 8, 24);
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = Gambar.siap((Graphics2D) g.create());
@@ -1162,14 +1298,16 @@ class SelStatus extends JPanel implements TableCellRenderer {
 
         Font f = Tema.f(11f, true);
         FontMetrics fm = g2.getFontMetrics(f);
-        int lebar = fm.stringWidth(status) + 22;
-        int tinggi = 24;
-        int x = 18;
-        int y = (getHeight() - tinggi) / 2;
-        Gambar.isi(g2, x, y, lebar, tinggi, 7, Tema.latarStatus(status));
+        int teks = fm.stringWidth(status);
+        // Padding kiri menyusut lebih dulu (min 8 px), lebar pil tetap utuh.
+        int sisa = Math.max(0, getWidth() - teks - PAD_PIL);
+        int x = Math.max(8, Math.min(PAD_KIRI, sisa));
+        int lebar = Math.min(teks + PAD_PIL, Math.max(teks + 6, getWidth() - x));
+        int y = (getHeight() - TIINGGI_PIL) / 2;
+        Gambar.isi(g2, x, y, lebar, TIINGGI_PIL, 7, Tema.latarStatus(status));
         g2.setFont(f);
         g2.setColor(Tema.warnaStatus(status));
-        g2.drawString(status, x + 11, y + (tinggi - fm.getHeight()) / 2 + fm.getAscent());
+        g2.drawString(status, x + 11, y + (TIINGGI_PIL - fm.getHeight()) / 2 + fm.getAscent());
         g2.dispose();
     }
 }
@@ -1432,6 +1570,7 @@ public class LaundryApp extends JFrame {
     private final Tombol btnUtama = new Tombol("Tambah Pesanan", Tombol.Jenis.UTAMA);
     private final Tombol btnKedua = new Tombol("Bersihkan Form", Tombol.Jenis.GARIS);
     private final Tombol btnHapus = new Tombol("Hapus", Tombol.Jenis.LEMBUT_MERAH);
+    private final Tombol btnStruk = new Tombol("Kirim Struk", Tombol.Jenis.GARIS);
 
     private final KartuStatistik kartuTotal = new KartuStatistik("Total Pesanan", "Semua pesanan tersimpan", false);
     private final KartuStatistik kartuProses = new KartuStatistik("Sedang Proses", "Pesanan sedang dikerjakan", false);
@@ -1457,11 +1596,10 @@ public class LaundryApp extends JFrame {
         setIconImage(buatIkonAplikasi());
 
         JPanel akar = new PanelLatar(new BorderLayout());
-        akar.add(new PanelHeader(this::muatData), BorderLayout.NORTH);
 
         JPanel tengah = new JPanel(new BorderLayout(0, 14));
         tengah.setOpaque(false);
-        tengah.setBorder(new EmptyBorder(12, 24, 8, 24));
+        tengah.setBorder(new EmptyBorder(14, 24, 12, 24));
         tengah.add(buatBarisStatistik(), BorderLayout.NORTH);
         tengah.add(buatIsiUtama(), BorderLayout.CENTER);
         akar.add(tengah, BorderLayout.CENTER);
@@ -1479,6 +1617,13 @@ public class LaundryApp extends JFrame {
         setSize(w, h);
         setMinimumSize(new Dimension(1120, 760));
         setLocationRelativeTo(null);
+
+        // Saat jendela di-resize, bagi ulang tinggi baris tabel.
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent e) {
+                tabel.setTinggiPenuh(true);
+            }
+        });
     }
 
     /* ---------------- susunan tampilan ---------------- */
@@ -1607,7 +1752,42 @@ public class LaundryApp extends JFrame {
         JPanel bungkus = new JPanel(new BorderLayout());
         bungkus.setOpaque(false);
         bungkus.setBorder(new EmptyBorder(0, 0, 0, 2));
-        bungkus.add(isi, BorderLayout.NORTH);
+
+        // Isi form mengisi tinggi kartu: label & input di atas, tombol menempel di
+        // dasar kartu supaya tidak ada ruang kosong menggantung di bawah tombol.
+        JPanel atasForm = new JPanel();
+        atasForm.setOpaque(false);
+        atasForm.setLayout(new BoxLayout(atasForm, BoxLayout.Y_AXIS));
+
+        isi.remove(btnUtama);
+        isi.remove(btnKedua);
+        // Pindahkan semua isi form (kecuali strut 5 px terakhir sebelum tombol) ke
+        // atasForm yang menempel di atas; tombol dipasang di kaki kartu.
+        while (isi.getComponentCount() > 0) {
+            Component c = isi.getComponent(0);
+            if (c instanceof Box.Filler && isi.getComponentCount() <= 1) break;
+            isi.remove(0);
+            atasForm.add(c);
+        }
+        for (Component komponen : atasForm.getComponents()) {
+            if (komponen instanceof JComponent) ((JComponent) komponen).setAlignmentX(LEFT_ALIGNMENT);
+        }
+
+        JPanel kakiForm = new JPanel();
+        kakiForm.setOpaque(false);
+        kakiForm.setLayout(new BoxLayout(kakiForm, BoxLayout.Y_AXIS));
+        kakiForm.add(btnUtama);
+        kakiForm.add(Box.createVerticalStrut(6));
+        kakiForm.add(btnKedua);
+        for (Component komponen : kakiForm.getComponents()) {
+            if (komponen instanceof JComponent) ((JComponent) komponen).setAlignmentX(LEFT_ALIGNMENT);
+        }
+
+        JPanel isiTinggi = new JPanel(new BorderLayout());
+        isiTinggi.setOpaque(false);
+        isiTinggi.add(atasForm, BorderLayout.NORTH);
+        isiTinggi.add(kakiForm, BorderLayout.SOUTH);
+        bungkus.add(isiTinggi, BorderLayout.CENTER);
 
         // Semua isi form rata kiri (BoxLayout butuh alignmentX yang sama)
         for (Component komponen : isi.getComponents()) {
@@ -1663,9 +1843,10 @@ public class LaundryApp extends JFrame {
         judul.setAlignmentX(LEFT_ALIGNMENT);
         kepala.add(kiri, BorderLayout.WEST);
 
-        JPanel kanan = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
+        JPanel kanan = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
         kanan.setOpaque(false);
         kanan.add(lencanaData);
+        kanan.add(buatTombolMuatUlang());
         kepala.add(kanan, BorderLayout.EAST);
 
         JPanel cari = new JPanel(new BorderLayout(10, 0));
@@ -1733,6 +1914,10 @@ public class LaundryApp extends JFrame {
         kananKaki.setOpaque(false);
         btnHapus.setPreferredSize(new Dimension(96, 34));
         btnHapus.setVisible(false);
+        btnStruk.setPreferredSize(new Dimension(116, 34));
+        btnStruk.setVisible(false);
+        kananKaki.add(btnStruk);
+        kananKaki.add(javax.swing.Box.createHorizontalStrut(8));
         kananKaki.add(btnHapus);
         barisKaki.add(kananKaki, BorderLayout.EAST);
 
@@ -1747,6 +1932,53 @@ public class LaundryApp extends JFrame {
         kaki.setBorder(new EmptyBorder(4, 26, 12, 26));
         return kaki;
     }
+
+    // Tombol muat ulang ringkas: hanya ikon panah melingkar, tanpa teks.
+    private JComponent buatTombolMuatUlang() {
+        JComponent tombol = new JComponent() {
+            private boolean disorot;
+            {
+                setToolTipText("Muat ulang data dari database");
+                setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                setPreferredSize(new Dimension(32, 32));
+                setMinimumSize(new Dimension(32, 32));
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseEntered(MouseEvent e) { disorot = true; repaint(); }
+                    @Override public void mouseExited(MouseEvent e) { disorot = false; repaint(); }
+                    @Override public void mouseReleased(MouseEvent e) {
+                        if (!contains(e.getPoint()) || !javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+                        muatData();
+                        // Ikon berputar satu kali supaya kliknya terasa.
+                        putaran = 0;
+                        if (!pemutarIkon.isRunning()) pemutarIkon.start();
+                        repaint();
+                    }
+                });
+            }
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = Gambar.siap((Graphics2D) g.create());
+                Gambar.isi(g2, 0, 0, getWidth(), getHeight(), 9,
+                        disorot ? Tema.TEAL_LEMBUT : Color.WHITE);
+                Gambar.garis(g2, 0.5, 0.5, getWidth() - 1, getHeight() - 1, 9, Tema.GARIS);
+                g2.rotate(Math.toRadians(pemutarIkon.isRunning() ? putaran : 0),
+                        getWidth() / 2.0, getHeight() / 2.0);
+                Gambar.panahUlang(g2, getWidth() / 2.0, getHeight() / 2.0,
+                        disorot ? Tema.TEAL : Tema.TEKS_ABU);
+                g2.dispose();
+            }
+        };
+        return tombol;
+    }
+
+    // Animasi putaran ikon muat ulang: 0 -> 360 derajat sekali klik.
+    private int putaran = 0;
+    private final javax.swing.Timer pemutarIkon = new javax.swing.Timer(16, e -> {
+        putaran = (putaran + 24) % 360;
+        if (putaran == 0) ((javax.swing.Timer) e.getSource()).stop();
+        repaint();
+    });
 
     /* ---------------- aksi ---------------- */
 
@@ -1772,6 +2004,13 @@ public class LaundryApp extends JFrame {
             @Override public void removeUpdate(DocumentEvent e) { hitungTotal(); }
             @Override public void changedUpdate(DocumentEvent e) { hitungTotal(); }
         });
+        // Nama yang sedang diketik tidak boleh memaksa kolom tabel melebar, jadi
+        // lebar kolom selalu diukur ulang dari data yang benar-benar tersimpan.
+        txtNama.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { tabel.sesuaikanLebar(); }
+            @Override public void removeUpdate(DocumentEvent e) { tabel.sesuaikanLebar(); }
+            @Override public void changedUpdate(DocumentEvent e) { tabel.sesuaikanLebar(); }
+        });
 
         btnUtama.addActionListener(e -> {
             if (idEdit >= 0) simpanPerubahan();
@@ -1788,6 +2027,10 @@ public class LaundryApp extends JFrame {
         btnHapus.addActionListener(e -> {
             Pesanan p = cariPesanan(idEdit);
             if (p != null) konfirmasiHapus(p);
+        });
+        btnStruk.addActionListener(e -> {
+            Pesanan p = cariPesanan(idEdit);
+            if (p != null) kirimWa(p, "struk", "Struk");
         });
         btnHapusCari.addActionListener(e -> {
             txtCari.setText("");
@@ -1840,12 +2083,57 @@ public class LaundryApp extends JFrame {
     private void tampilkanMenuStatus(Pesanan p, Component anchor, int x, int y) {
         if (p == null) return;
         menuStatus.removeAll();
+        menuStatus.setBorder(BorderFactory.createLineBorder(Tema.GARIS));
         for (String status : new String[]{"Belum Diproses", "Proses", "Selesai"}) {
-            JMenuItem item = new JMenuItem(status.equals(p.status) ? "✓  " + status : status);
-            item.addActionListener(ev -> simpanStatus(p, status));
-            menuStatus.add(item);
+            menuStatus.add(buatItemStatus(p, status));
         }
-        menuStatus.show(anchor, x, y);
+
+        // Menu digeser ke kiri bila akan menembus tepi kanan panel tabel.
+        Component induk = anchor.getParent();
+        int lebar = menuStatus.getPreferredSize().width;
+        int batas = induk == null ? x + lebar : induk.getWidth() - 4;
+        int xAman = Math.max(-lebar + 30, Math.min(x, batas - lebar));
+        menuStatus.show(anchor, xAman, y);
+    }
+
+    // Setiap pilihan memakai warna statusnya sendiri (sama seperti pil di tabel):
+    // latar pil lembut dengan teks berwarna senada.
+    private JMenuItem buatItemStatus(Pesanan pesanan, String status) {
+        JMenuItem item = new JMenuItem(status) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = Gambar.siap((Graphics2D) g.create());
+                boolean disorot = getModel().isArmed() || getModel().isRollover();
+                Color latar = Tema.latarStatus(status);
+                Color warna = Tema.warnaStatus(status);
+
+                g2.setColor(disorot ? lebihGelap(latar) : Color.WHITE);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+
+                // Pil kecil berisi teks status, meniru tampilan lencana di tabel.
+                Font f = Tema.f(11f, true);
+                FontMetrics fm = g2.getFontMetrics(f);
+                int lebarPil = Math.min(fm.stringWidth(status) + 24, getWidth() - 20);
+                int tinggiPil = 22;
+                int yPil = (getHeight() - tinggiPil) / 2;
+                Gambar.isi(g2, (getWidth() - lebarPil) / 2, yPil, lebarPil, tinggiPil, 7, latar);
+
+                g2.setFont(f);
+                g2.setColor(warna);
+                int teksX = (getWidth() - fm.stringWidth(status)) / 2;
+                g2.drawString(status, teksX, yPil + (tinggiPil - fm.getHeight()) / 2 + fm.getAscent());
+                g2.dispose();
+            }
+        };
+        item.setOpaque(false);
+        item.setBorder(new EmptyBorder(4, 4, 4, 4));
+        item.setPreferredSize(new Dimension(190, 34));
+        item.addActionListener(ev -> simpanStatus(pesanan, status));
+        return item;
+    }
+
+    private static Color lebihGelap(Color c) {
+        return new Color(Math.max(0, c.getRed() - 14), Math.max(0, c.getGreen() - 14), Math.max(0, c.getBlue() - 14));
     }
 
     private void simpanStatus(Pesanan p, String statusBaru) {
@@ -1856,8 +2144,106 @@ public class LaundryApp extends JFrame {
             muatData();
             tampilkanToast("Status pesanan diubah menjadi " + statusBaru);
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Gagal mengubah status.\\n" + ex.getMessage(), "Error Database", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Gagal mengubah status.\n" + ex.getMessage(), "Error Database", JOptionPane.ERROR_MESSAGE);
         }
+        // Baru berubah ke Selesai -> kabari pelanggan lewat WhatsApp (di latar belakang).
+        if ("Selesai".equals(statusBaru) && !"Selesai".equals(p.status)) {
+            kirimWa(p, "selesai", "Notifikasi selesai");
+        }
+    }
+
+    /* ---------------- kirim struk / notifikasi WhatsApp ---------------- */
+
+    // Alamat webhook n8n dan bisa diubah tanpa compile ulang lewat berkas
+    // config.properties di folder aplikasi.
+    private static final String URL_WEBHOOK = bacaKonfigurasi("webhook.wa",
+            "http://localhost:5678/webhook/laundry-struk");
+
+    private static String bacaKonfigurasi(String kunci, String bawaan) {
+        java.io.File f = new java.io.File("config.properties");
+        if (!f.isFile()) return bawaan;
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            Properties p = new Properties();
+            p.load(in);
+            String v = p.getProperty(kunci);
+            return v == null || v.trim().isEmpty() ? bawaan : v.trim();
+        } catch (Exception e) {
+            return bawaan;
+        }
+    }
+
+    // Kirim data pesanan ke workflow n8n; jalan di thread terpisah supaya UI tidak
+    // membeku. Hasilnya dilaporkan lewat toast.
+    private void kirimWa(Pesanan p, String mode, String label) {
+        final String json = buatJsonWa(p, mode);
+        final String kode = p.kodeId();
+        new Thread(() -> {
+            String pesan;
+            try {
+                // n8n menggantung bila diminta HTTP/2, jadi paksa HTTP/1.1.
+                java.net.http.HttpClient klien = java.net.http.HttpClient.newBuilder()
+                        .version(java.net.http.HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(java.time.Duration.ofSeconds(8)).build();
+                java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                        .uri(java.net.URI.create(URL_WEBHOOK))
+                        .timeout(java.time.Duration.ofSeconds(45))
+                        .header("Content-Type", "application/json")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(json))
+                        .build();
+                java.net.http.HttpResponse<String> res = klien.send(req,
+                        java.net.http.HttpResponse.BodyHandlers.ofString());
+                String badan = res.body() == null ? "" : res.body();
+                if (res.statusCode() == 200 && badan.contains("\"ok\":true")) {
+                    pesan = label + " terkirim ke WA pelanggan (" + kode + ")";
+                } else {
+                    pesan = label + " gagal: " + ringkasPesan(badan);
+                }
+            } catch (java.net.http.HttpTimeoutException batas) {
+                pesan = label + " gagal: server WA tidak merespons (timeout)";
+            } catch (java.net.ConnectException mati) {
+                pesan = label + " gagal: server WA tidak aktif";
+            } catch (Exception ex) {
+                pesan = label + " gagal: " + ex.getClass().getSimpleName();
+            }
+            final String teks = pesan;
+            SwingUtilities.invokeLater(() -> tampilkanToast(teks));
+        }, "wa-" + mode).start();
+    }
+
+    private static String ringkasPesan(String badan) {
+        if (badan.contains("tidak valid")) return "nomor telepon tidak valid";
+        if (badan.contains("ok\":false")) return "ditolak server";
+        return badan.isEmpty() ? "tidak ada balasan" : badan.trim().substring(0, Math.min(60, badan.trim().length()));
+    }
+
+    // JSON disusun manual supaya tidak perlu library tambahan.
+    private static String buatJsonWa(Pesanan p, String mode) {
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"mode\":\"").append(mode).append("\",");
+        sb.append("\"kode\":\"").append(kodeJson(p.kodeId())).append("\",");
+        sb.append("\"nama\":\"").append(kodeJson(p.nama)).append("\",");
+        sb.append("\"telepon\":\"").append(kodeJson(p.telepon)).append("\",");
+        sb.append("\"jenis\":\"").append(kodeJson(p.jenis)).append("\",");
+        sb.append("\"item\":\"").append(kodeJson(p.item)).append("\",");
+        sb.append("\"jumlah\":\"").append(ModelPesanan.angkaJumlah(p.jumlah)).append("\",");
+        sb.append("\"tarif\":").append(Math.round(p.tarif)).append(",");
+        sb.append("\"total\":").append(Math.round(p.total)).append(",");
+        sb.append("\"status\":\"").append(kodeJson(p.status)).append("\",");
+        sb.append("\"tanggal\":\"").append(kodeJson(p.tanggal)).append("\"");
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String kodeJson(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            if (c == 92) b.append((char) 92).append((char) 92);
+            else if (c == 34) b.append((char) 92).append((char) 34);
+            else if (c == 10 || c == 13) b.append((char) 32);
+            else b.append(c);
+        }
+        return b.toString();
     }
 
     private void cariBerubah() {
@@ -1890,9 +2276,28 @@ public class LaundryApp extends JFrame {
                     + "\n\nLokasi database: " + DB.infoLokasi(), "Error Database", JOptionPane.ERROR_MESSAGE);
         }
         model.setData(data);
+        tabel.sesuaikanLebar();
+        tabel.setTinggiPenuh(true);
         perbaruiStatistik();
         terapkanSaringan();
         lencanaId.setTeks(idBerikutnya());
+        sinkronkanPilihanEdit();
+    }
+
+    // muatData() dipanggil setiap kali status diubah, jadi tanpa ini form edit
+    // kembali menampilkan data lama bila pesanan yang diedit tidak lagi cocok
+    // dengan saringan aktif (barisnya hilang dari tabel).
+    private void sinkronkanPilihanEdit() {
+        if (idEdit < 0) return;
+        Pesanan terkini = cariPesanan(idEdit);
+        if (terkini == null) {
+            keluarModeEdit();
+            return;
+        }
+        segJenis.setPilihan(terkini.jenis);
+        perbaruiItem();
+        pilihItem.setPilihan(terkini.item);
+        hitungTotal();
     }
 
     private void perbaruiStatistik() {
@@ -2084,6 +2489,7 @@ public class LaundryApp extends JFrame {
         btnUtama.setText("Simpan Perubahan");
         btnKedua.setText("Batal Edit");
         btnHapus.setVisible(true);
+        btnStruk.setVisible(true);
         lblInfoTabel.setText("Ikon \u2304: ganti status \u2022 " + p.kodeId()
                 + " dipilih \u2022 Klik Batal Edit untuk kembali menambah pesanan.");
         hitungTotal();
@@ -2096,6 +2502,7 @@ public class LaundryApp extends JFrame {
         btnUtama.setText("Tambah Pesanan");
         btnKedua.setText("Bersihkan Form");
         btnHapus.setVisible(false);
+        btnStruk.setVisible(false);
         lblInfoTabel.setText("Ikon \u2304: ganti status \u2022 Belum Diproses \u2192 Proses \u2192 Selesai \u2192 Belum Diproses");
         tabel.clearSelection();
         bersihkanForm();
@@ -2157,9 +2564,14 @@ public class LaundryApp extends JFrame {
         if (tampil == 0) {
             boolean adaSaringan = !kataKunci.isEmpty() || filterStatus != null;
             lblKosongJudul.setText(adaSaringan ? "Tidak ada hasil" : "Belum ada pesanan");
-            lblKosongPesan.setText(!kataKunci.isEmpty()
-                    ? "Tidak ada nama pelanggan atau ID yang cocok dengan \"" + txtCari.getText().trim() + "\"."
-                    : "Tambahkan pesanan pertama lewat form di sebelah kiri.");
+            if (!kataKunci.isEmpty()) {
+                lblKosongPesan.setText("Tidak ada nama pelanggan atau ID yang cocok dengan \""
+                        + txtCari.getText().trim() + "\".");
+            } else if (filterStatus != null) {
+                lblKosongPesan.setText("Tidak ada pesanan dengan status " + filterStatus + ".");
+            } else {
+                lblKosongPesan.setText("Tambahkan pesanan pertama lewat form di sebelah kiri.");
+            }
             btnHapusCari.setVisible(adaSaringan);
             kartuTabel.show(isiTabel, "kosong");
         } else {
@@ -2235,7 +2647,70 @@ public class LaundryApp extends JFrame {
         return img;
     }
 
+    /* ---------------- diagnosa tanpa tampilan (--cek) ---------------- */
+
+    // Dipakai untuk memverifikasi logika (database, tarif, statistik, saringan)
+    // dari terminal tanpa membuka jendela Swing.
+    private static int cekMandiri(String[] args) {
+        Locale.setDefault(new Locale("id", "ID"));
+        final int[] gagal = {0};
+
+        try {
+            DB.buatTabel();
+            List<Pesanan> baris = new ArrayList<>();
+            try (Connection c = DB.getKoneksi(); Statement s = c.createStatement();
+                 ResultSet r = s.executeQuery("SELECT * FROM pesanan ORDER BY id DESC")) {
+                while (r.next()) {
+                    Pesanan p = new Pesanan();
+                    p.id = r.getInt("id");
+                    p.nama = teks(r.getString("nama"));
+                    p.telepon = teks(r.getString("telepon"));
+                    p.jenis = teks(r.getString("jenis"));
+                    p.item = teks(r.getString("item"));
+                    p.jumlah = r.getDouble("jumlah");
+                    p.tarif = r.getDouble("tarif");
+                    p.total = r.getDouble("total");
+                    p.status = teks(r.getString("status"));
+                    p.tanggal = teks(r.getString("tanggal"));
+                    baris.add(p);
+                }
+            }
+
+            int proses = 0, selesai = 0;
+            long pendapatan = 0;
+            for (Pesanan p : baris) {
+                if ("Proses".equals(p.status)) proses++;
+                if ("Selesai".equals(p.status)) {
+                    selesai++;
+                    pendapatan += Math.round(p.total);
+                }
+            }
+            System.out.println("Database   : " + DB.infoLokasi());
+            System.out.println("Total      : " + baris.size());
+            System.out.println("Proses     : " + proses);
+            System.out.println("Selesai    : " + selesai);
+            System.out.println("Pendapatan : " + Tema.rupiah(pendapatan));
+
+            LayananLaundry kiloan = new LaundryKiloan(3);
+            System.out.println("Tarif kg   : " + Tema.rupiah(Math.round(kiloan.tarifSatuan())));
+            System.out.println("Total 3 kg : " + Tema.rupiah(Math.round(kiloan.hitungTotal())));
+            LayananLaundry satuan = new LaundrySatuan(2, "Sepatu");
+            System.out.println("Total 2 pcs Sepatu : " + Tema.rupiah(Math.round(satuan.hitungTotal())));
+            System.out.println("Tanggal    : " + ModelPesanan.tanggalTampil("2026-10-29"));
+        } catch (Exception e) {
+            gagal[0]++;
+            System.out.println("GAGAL: " + e);
+        }
+
+        System.out.println(gagal[0] == 0 ? "HASIL: OK" : "HASIL: ADA ERROR");
+        return gagal[0] == 0 ? 0 : 1;
+    }
+
     public static void main(String[] args) {
+        if (args.length > 0 && ("--cek".equals(args[0]) || "--check".equals(args[0]))) {
+            System.exit(cekMandiri(args));
+        }
+
         System.setProperty("awt.useSystemAAFontSettings", "on");
         System.setProperty("swing.aatext", "true");
 

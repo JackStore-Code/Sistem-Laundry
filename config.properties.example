@@ -1,0 +1,9 @@
+# Contoh konfigurasi Bening Laundry
+# Salin berkas ini menjadi config.properties lalu isi nilainya.
+
+# Alamat server pengirim pesan WhatsApp
+webhook.wa=http://localhost:5678/webhook/laundry-struk
+
+# Kunci API Evolution, dipakai nyalakan.bat untuk memeriksa status WhatsApp.
+# Kosongkan bila tidak memakai integrasi WhatsApp.
+evolution.apikey=
