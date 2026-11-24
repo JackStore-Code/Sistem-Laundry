@@ -38,3 +38,28 @@ Program ini menerapkan 4 pilar utama Object-Oriented Programming secara terstruk
 * **Hapus & Reset Form:** Fitur menghapus data pesanan dan membersihkan form input.
 
 ---
+
+## Tampilan Antarmuka (UI Modern)
+
+Tampilan diperbarui dengan gaya *flat design* modern **tanpa library tambahan** (murni Swing + tema Nimbus):
+
+* **Header Gradien:** Banner biru-teal dengan judul aplikasi dan dekorasi gelembung sabun.
+* **Kartu Statistik (Dashboard):** 4 kartu di bawah header yang ter-update otomatis dari database: *Total Pesanan*, *Sedang Proses*, *Selesai*, dan *Pendapatan (Selesai)*.
+* **Tombol Modern:** Tombol bersudut membulat dengan warna berbeda sesuai fungsi (tambah = teal, hapus = kuning, dll.) serta efek *hover* dan *klik*. Tombol `Enter` pada keyboard juga berfungsi sebagai tombol "Tambah Pesanan".
+* **Tabel Zebra:** Baris data berselang-seling putih/abu-abu muda, header tabel berwarna teal gelap, dan baris terpilih berwarna teal muda.
+* **Lencana Status Berwarna:** Kolom status tampil sebagai *badge* pil berwarna (kuning = *Belum Diproses*, biru = *Proses*, hijau = *Selesai*).
+* **Format Rupiah Rapi:** Nominal dengan pemisah ribuan, contoh: `Rp 7.000`.
+* **Format Tanggal:** Kolom tanggal ditampilkan dalam format `dd-MM-yyyy`.
+* **Font Segoe UI:** Tampilan teks lebih modern dan mudah dibaca.
+
+---
+
+## Cara Menjalankan
+
+Pastikan Java (JDK 8 ke atas) sudah terpasang, lalu jalankan di folder proyek:
+
+```
+javac -encoding UTF-8 LaundryApp.java
+java LaundryApp
+```
+

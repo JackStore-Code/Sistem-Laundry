@@ -1,4 +1,25 @@
+# Build artifact Java
 *.class
+
+# IDE
 .vscode/
 .idea/
+*.iml
+
+# Log
 *.log
+
+# Database lokal (jangan di-push, berisi data user)
+db_laundry.db
+*.db
+*.db-journal
+*.sqlite
+
+# Binary hasil build
+sistem laudry
+*.jar
+!sqlite-jdbc-3.54.1.0.jar
+
+# OS
+Thumbs.db
+.DS_Store
