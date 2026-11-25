@@ -2525,7 +2525,7 @@ public class LaundryApp extends JFrame {
         sb.append("\"status\":\"").append(kodeJson(p.getStatus())).append("\",");
         sb.append("\"tanggal\":\"").append(kodeJson(p.getTanggal())).append("\",");
         sb.append("\"estimasi_hari\":").append(p.getEstimasiHari()).append(",");
-        sb.append("\"tanggal_selesai\":\"").append(kodeJson(p.getTanggalSelesai())).append("\",");
+        sb.append("\"tanggal_selesai\":\"").append(kodeJson(p.getTanggalSelesai())).append("\"");
         sb.append("}");
         return sb.toString();
     }
