@@ -1,0 +1,132 @@
+LaundryApp.java:386
+    "ID"
+LaundryApp.java:386
+    "Nama"
+LaundryApp.java:386
+    "Telepon"
+LaundryApp.java:386
+    "Jenis"
+LaundryApp.java:386
+    "Item"
+LaundryApp.java:1205
+    "Bening Laundry"
+LaundryApp.java:1217
+    "Muat Ulang"
+LaundryApp.java:1245
+    "0"
+LaundryApp.java:1578
+    "Ganti status"
+LaundryApp.java:1679
+    "Hapus pesanan ini?"
+LaundryApp.java:1724
+    "Fokus awal: Batal \u2022 Enter untuk membatalkan"
+LaundryApp.java:1730
+    "Batal"
+LaundryApp.java:1732
+    "Hapus Pesanan"
+LaundryApp.java:1815
+    "Pesanan baru"
+LaundryApp.java:1816
+    "Isi data cucian pelanggan."
+LaundryApp.java:1817
+    "Berat (kg)"
+LaundryApp.java:1818
+    "Rp 7.000 / kg"
+LaundryApp.java:1819
+    "\u2014"
+LaundryApp.java:1820
+    "Terkunci untuk layanan kiloan"
+LaundryApp.java:1828
+    "Menampilkan 0 dari 0 pesanan"
+LaundryApp.java:1830
+    "Tambah Pesanan"
+LaundryApp.java:1831
+    "Bersihkan Form"
+LaundryApp.java:1832
+    "Hapus"
+LaundryApp.java:1833
+    "Kirim Struk"
+LaundryApp.java:1843
+    "Tidak ada hasil"
+LaundryApp.java:1844
+    "Belum ada pesanan yang cocok."
+LaundryApp.java:1845
+    "Hapus pencarian"
+LaundryApp.java:1990
+    "Harga Satuan"
+LaundryApp.java:2010
+    "Total Estimasi"
+LaundryApp.java:2122
+    "Daftar pesanan"
+LaundryApp.java:2224
+    "Muat ulang data dari database"
+LaundryApp.java:2441
+    "Gagal mengubah status.\n"
+LaundryApp.java:2441
+    "Error Database"
+LaundryApp.java:2573
+    "Gagal memuat data.\n"
+LaundryApp.java:2574
+    "\n\nLokasi database: "
+LaundryApp.java:2574
+    "Error Database"
+LaundryApp.java:2719
+    "Nama pelanggan wajib diisi."
+LaundryApp.java:2725
+    "No. telepon wajib diisi."
+LaundryApp.java:2731
+    "Jumlah harus lebih dari 0."
+LaundryApp.java:2766
+    " / "
+LaundryApp.java:2767
+    "Kiloan"
+LaundryApp.java:2767
+    "Berat (kg)"
+LaundryApp.java:2767
+    "Jumlah (pcs)"
+LaundryApp.java:2778
+    "\u2014"
+LaundryApp.java:2823
+    "Isi minimal 1 hari kerja."
+LaundryApp.java:2834
+    "Perkiraan selesai: "
+LaundryApp.java:2854
+    "Edit pesanan"
+LaundryApp.java:2855
+    "Ubah data pesanan yang dipilih."
+LaundryApp.java:2868
+    "Simpan Perubahan"
+LaundryApp.java:2869
+    "Batal Edit"
+LaundryApp.java:2872
+    "Ikon \u2304: ganti status \u2022 "
+LaundryApp.java:2879
+    "Pesanan baru"
+LaundryApp.java:2880
+    "Isi data cucian pelanggan."
+LaundryApp.java:2881
+    "Tambah Pesanan"
+LaundryApp.java:2882
+    "Bersihkan Form"
+LaundryApp.java:2885
+    "Ikon \u2304: ganti status \u2022 Belum Diproses \u2192 Proses \u2192 Selesai \u2192 Belum Diproses"
+LaundryApp.java:2942
+    "Menampilkan "
+LaundryApp.java:2942
+    " dari "
+LaundryApp.java:2942
+    " pesanan"
+LaundryApp.java:2946
+    "Tidak ada hasil"
+LaundryApp.java:2946
+    "Belum ada pesanan"
+LaundryApp.java:2948
+    "Tidak ada nama pelanggan atau ID yang cocok dengan \""
+LaundryApp.java:2951
+    "Tidak ada pesanan dengan status "
+LaundryApp.java:2951
+    "."
+LaundryApp.java:2953
+    "Tambahkan pesanan pertama lewat form di sebelah kiri."
+LaundryApp.java:3106
+    "Error Database"

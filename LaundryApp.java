@@ -32,18 +32,34 @@ import java.util.Properties;
 
 // [A] ABSTRACTION: Kelas abstrak sebagai cetak biru (blueprint) layanan
 abstract class LayananLaundry {
-    protected double jumlah; // [D] ENCAPSULATION: atribut dilindungi (protected)
+    // [D] ENCAPSULATION: atribut dibuat private. Kelas lain tidak dapat
+    // mengubah nilainya secara langsung; satu-satunya jalan adalah lewat
+    // getJumlah() / setJumlah(), sehingga validasi di bawah tidak bisa dilewati.
+    private double jumlah;
 
     public LayananLaundry(double jumlah) {
-        this.jumlah = Math.max(0, jumlah);
+        setJumlah(jumlah);
+    }
+
+    public double getJumlah() {
+        return jumlah;
+    }
+
+    public void setJumlah(double jumlah) {
+        this.jumlah = Math.max(0, jumlah); // nilai negatif otomatis ditolak
     }
 
     // Method abstrak yang wajib diisi oleh kelas anak
     public abstract double tarifSatuan();
 
+    // [C] POLYMORPHISM: setiap jenis layanan punya estimasi hari berbeda.
+    // Nilai ini hanya SARAN AWAL untuk kasir; angka final tetap bisa diubah
+    // manual di form karena kasir yang tahu beban kerja hari itu.
+    public abstract int estimasiHariDefault();
+
     // Perhitungan umum total harga
     public double hitungTotal() {
-        return jumlah * tarifSatuan();
+        return getJumlah() * tarifSatuan();
     }
 }
 
@@ -60,6 +76,12 @@ class LaundryKiloan extends LayananLaundry {
     public double tarifSatuan() {
         return TARIF_PER_KG;
     }
+
+    // Cucian kiloan selesai dalam 1 hari kerja.
+    @Override
+    public int estimasiHariDefault() {
+        return 1;
+    }
 }
 
 class LaundrySatuan extends LayananLaundry {
@@ -70,6 +92,10 @@ class LaundrySatuan extends LayananLaundry {
         this.item = item;
     }
 
+    public String getItem() {
+        return item;
+    }
+
     // [C] POLYMORPHISM: tarif satuan berbeda-beda sesuai jenis item
     @Override
     public double tarifSatuan() {
@@ -77,6 +103,16 @@ class LaundrySatuan extends LayananLaundry {
         if ("Jaket".equals(item))  return 15000;
         if ("Karpet".equals(item)) return 20000;
         return 10000;
+    }
+
+    // [C] POLYMORPHISM: estimasi hari bergantung tingkat kesulitan item.
+    // Karpet butuh penjemuran lebih lama, sepatu/jaket butuh pengeringan.
+    @Override
+    public int estimasiHariDefault() {
+        if ("Karpet".equals(item)) return 3;
+        if ("Sepatu".equals(item)) return 2;
+        if ("Jaket".equals(item))  return 2;
+        return 2; // pakaian satuan
     }
 }
 
@@ -189,11 +225,59 @@ class DB {
             s.executeUpdate("CREATE TABLE IF NOT EXISTS pesanan (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, telepon TEXT, " +
                     "jenis TEXT, item TEXT, jumlah REAL, tarif REAL, total REAL, " +
-                    "status TEXT DEFAULT 'Belum Diproses', tanggal TEXT)");
+                    "status TEXT DEFAULT 'Belum Diproses', tanggal TEXT, " +
+                    "estimasi_hari INTEGER DEFAULT 0, tanggal_selesai TEXT)");
             tambahKolomYangHilang(s);
+            isiEstimasiLama();
             s.executeUpdate("UPDATE pesanan SET status = 'Proses' WHERE status IN ('Cuci', 'Setrika')");
             s.executeUpdate("UPDATE pesanan SET status = 'Belum Diproses' WHERE status IS NULL OR TRIM(status) = ''");
             s.executeUpdate("UPDATE pesanan SET tanggal = date('now') WHERE tanggal IS NULL OR TRIM(tanggal) = ''");
+        }
+    }
+
+    /**
+     * Pesanan yang dibuat sebelum fitur estimasi ada belum punya estimasi_hari
+     * maupun tanggal_selesai. Method ini menghitungnya sekali dari jenis, item,
+     * dan tanggal pesanan, supaya data lama tetap tampil lengkap di tabel.
+     */
+    private static void isiEstimasiLama() throws Exception {
+        java.util.List<int[]> perlu = new java.util.ArrayList<>();
+        java.util.List<String> jenis = new java.util.ArrayList<>();
+        java.util.List<String> item = new java.util.ArrayList<>();
+        java.util.List<String> tanggal = new java.util.ArrayList<>();
+
+        try (Connection c = getKoneksi();
+             Statement s = c.createStatement();
+             ResultSet r = s.executeQuery(
+                     "SELECT id, jenis, item, tanggal FROM pesanan "
+                     + "WHERE estimasi_hari IS NULL OR estimasi_hari <= 0 "
+                     + "OR tanggal_selesai IS NULL OR TRIM(tanggal_selesai) = ''")) {
+            while (r.next()) {
+                perlu.add(new int[]{r.getInt("id")});
+                jenis.add(r.getString("jenis"));
+                item.add(r.getString("item"));
+                tanggal.add(r.getString("tanggal"));
+            }
+        }
+        if (perlu.isEmpty()) return;
+
+        try (Connection c = getKoneksi();
+             PreparedStatement p = c.prepareStatement(
+                     "UPDATE pesanan SET estimasi_hari = ?, tanggal_selesai = ? WHERE id = ?")) {
+            for (int i = 0; i < perlu.size(); i++) {
+                int id = perlu.get(i)[0];
+                LayananLaundry layanan = "Kiloan".equals(jenis.get(i))
+                        ? new LaundryKiloan(1)
+                        : new LaundrySatuan(1, item.get(i));
+                int hari = layanan.estimasiHariDefault();
+                String dasar = tanggal.get(i);
+                if (Tanggal.baca(dasar) == null) dasar = Tanggal.hariIni();
+                p.setInt(1, hari);
+                p.setString(2, Tanggal.hitungSelesai(dasar, hari));
+                p.setInt(3, id);
+                p.addBatch();
+            }
+            p.executeBatch();
         }
     }
 
@@ -205,6 +289,8 @@ class DB {
         if (!kolom.contains("tarif"))   s.executeUpdate("ALTER TABLE pesanan ADD COLUMN tarif REAL DEFAULT 0");
         if (!kolom.contains("status"))  s.executeUpdate("ALTER TABLE pesanan ADD COLUMN status TEXT DEFAULT 'Belum Diproses'");
         if (!kolom.contains("tanggal")) s.executeUpdate("ALTER TABLE pesanan ADD COLUMN tanggal TEXT");
+        if (!kolom.contains("estimasi_hari"))   s.executeUpdate("ALTER TABLE pesanan ADD COLUMN estimasi_hari INTEGER DEFAULT 0");
+        if (!kolom.contains("tanggal_selesai")) s.executeUpdate("ALTER TABLE pesanan ADD COLUMN tanggal_selesai TEXT");
     }
 }
 
@@ -212,26 +298,93 @@ class DB {
  * 3. DATA PESANAN
  * ========================================================================= */
 class Pesanan {
-    int id;
-    String nama = "";
-    String telepon = "";
-    String jenis = "Kiloan";
-    String item = "Pakaian";
-    double jumlah;
-    double tarif;
-    double total;
-    String status = "Belum Diproses";
-    String tanggal = "";
+    // [D] ENCAPSULATION: seluruh atribut private. Data hanya dapat dibaca
+    // dan diubah melalui getter/setter di bawah, sehingga tidak ada kelas
+    // lain yang bisa menyisipkan nilai sembarangan secara langsung.
+    private int id;
+    private String nama = "";
+    private String telepon = "";
+    private String jenis = "Kiloan";
+    private String item = "Pakaian";
+    private double jumlah;
+    private double tarif;
+    private double total;
+    private String status = "Belum Diproses";
+    private String tanggal = "";
+    private int estimasiHari;
+    private String tanggalSelesai = "";
+
+    // ---------- getter ----------
+    public int getId()               { return id; }
+    public String getNama()          { return nama; }
+    public String getTelepon()       { return telepon; }
+    public String getJenis()         { return jenis; }
+    public String getItem()          { return item; }
+    public double getJumlah()        { return jumlah; }
+    public double getTarif()         { return tarif; }
+    public double getTotal()         { return total; }
+    public String getStatus()        { return status; }
+    public String getTanggal()       { return tanggal; }
+    public int getEstimasiHari()     { return estimasiHari; }
+    public String getTanggalSelesai() { return tanggalSelesai; }
+
+    // ---------- setter (dengan validasi) ----------
+    public void setId(int id)        { this.id = id; }
+
+    public void setNama(String nama) {
+        this.nama = (nama == null) ? "" : nama.trim();
+    }
+
+    public void setTelepon(String telepon) {
+        this.telepon = (telepon == null) ? "" : telepon.trim();
+    }
+
+    public void setJenis(String jenis) {
+        this.jenis = ("Satuan".equals(jenis)) ? "Satuan" : "Kiloan";
+    }
+
+    public void setItem(String item) {
+        this.item = (item == null || item.trim().isEmpty()) ? "Pakaian" : item.trim();
+    }
+
+    public void setJumlah(double jumlah) {
+        this.jumlah = Math.max(0, jumlah); // nilai negatif ditolak
+    }
+
+    public void setTarif(double tarif) {
+        this.tarif = Math.max(0, tarif);
+    }
+
+    public void setTotal(double total) {
+        this.total = Math.max(0, total);
+    }
+
+    public void setStatus(String status) {
+        this.status = (status == null || status.trim().isEmpty())
+                ? "Belum Diproses" : status.trim();
+    }
+
+    public void setTanggal(String tanggal) {
+        this.tanggal = (tanggal == null) ? "" : tanggal.trim();
+    }
+
+    public void setEstimasiHari(int estimasiHari) {
+        this.estimasiHari = Math.max(0, estimasiHari); // negatif ditolak
+    }
+
+    public void setTanggalSelesai(String tanggalSelesai) {
+        this.tanggalSelesai = (tanggalSelesai == null) ? "" : tanggalSelesai.trim();
+    }
 
     String kodeId() {
-        return String.format("LND-%03d", id);
+        return String.format("LND-%03d", getId());
     }
 }
 
 // Model tabel: seluruh data ditampung di ArrayList (Java Collection Framework)
 class ModelPesanan extends AbstractTableModel {
     static final String[] KOLOM = {"ID", "Nama", "Telepon", "Jenis", "Item",
-            "Jumlah", "Tarif", "Total", "Status", "Tanggal", ""};
+            "Jumlah", "Tarif", "Total", "Status", "Tanggal", "Est. Selesai", ""};
     private final List<Pesanan> data = new ArrayList<>();
 
     void setData(List<Pesanan> baru) {
@@ -259,15 +412,16 @@ class ModelPesanan extends AbstractTableModel {
         Pesanan p = data.get(baris);
         switch (kolom) {
             case 0:  return p.kodeId();
-            case 1:  return p.nama;
-            case 2:  return p.telepon;
-            case 3:  return p.jenis;
-            case 4:  return p.item;
-            case 5:  return angkaJumlah(p.jumlah) + " " + satuan(p.jenis);
-            case 6:  return Tema.rupiah(Math.round(p.tarif));
-            case 7:  return Tema.rupiah(Math.round(p.total));
-            case 8:  return p.status;
-            case 9:  return tanggalTampil(p.tanggal);
+            case 1:  return p.getNama();
+            case 2:  return p.getTelepon();
+            case 3:  return p.getJenis();
+            case 4:  return p.getItem();
+            case 5:  return angkaJumlah(p.getJumlah()) + " " + satuan(p.getJenis());
+            case 6:  return Tema.rupiah(Math.round(p.getTarif()));
+            case 7:  return Tema.rupiah(Math.round(p.getTotal()));
+            case 8:  return p.getStatus();
+            case 9:  return tanggalTampil(p.getTanggal());
+            case 10: return tanggalTampil(p.getTanggalSelesai());
             default: return "";
         }
     }
@@ -291,7 +445,96 @@ class ModelPesanan extends AbstractTableModel {
 }
 
 /* =========================================================================
- * 4. TEMA (warna, font, format) - mengikuti mockup
+ * 4. UTILITAS TANGGAL (perhitungan estimasi waktu selesai)
+ * ========================================================================= */
+final class Tanggal {
+
+    private Tanggal() { } // kelas utilitas, tidak untuk diinstansiasi
+
+    static final java.time.format.DateTimeFormatter FORMAT_DB =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+    // Hari kerja laundry: Senin-Sabtu. Minggu libur, jadi tidak dihitung.
+    static boolean hariKerja(java.time.LocalDate t) {
+        return t.getDayOfWeek() != java.time.DayOfWeek.SUNDAY;
+    }
+
+    /**
+     * Menjumlahkan sejumlah hari KERJA ke sebuah tanggal, dengan melewati
+     * hari Minggu. Contoh: Jumat + 2 hari kerja = Senin (Sabtu dihitung,
+     * Minggu dilewati).
+     */
+    static java.time.LocalDate tambahHariKerja(java.time.LocalDate mulai, int hari) {
+        if (mulai == null) return null;
+        java.time.LocalDate hasil = mulai;
+        int sisa = Math.max(0, hari);
+        while (sisa > 0) {
+            hasil = hasil.plusDays(1);
+            if (hariKerja(hasil)) sisa--;
+        }
+        return hasil;
+    }
+
+    /** Tanggal hari ini menurut jam sistem, dalam format database yyyy-MM-dd. */
+    static String hariIni() {
+        return java.time.LocalDate.now().format(FORMAT_DB);
+    }
+
+    /**
+     * Menghitung tanggal selesai dari tanggal pesanan + estimasi hari kerja.
+     * Mengembalikan string kosong bila tanggal tidak valid.
+     */
+    static String hitungSelesai(String tanggalPesanan, int estimasiHari) {
+        java.time.LocalDate mulai = baca(tanggalPesanan);
+        if (mulai == null) return "";
+        return tambahHariKerja(mulai, estimasiHari).format(FORMAT_DB);
+    }
+
+    /** Membaca tanggal format database; null bila kosong/tidak valid. */
+    static java.time.LocalDate baca(String t) {
+        if (t == null || !t.matches("\\d{4}-\\d{2}-\\d{2}")) return null;
+        try {
+            return java.time.LocalDate.parse(t, FORMAT_DB);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Nama hari dalam bahasa Indonesia, mis. "Kamis". */
+    static String namaHari(String tanggalDb) {
+        java.time.LocalDate t = baca(tanggalDb);
+        if (t == null) return "";
+        switch (t.getDayOfWeek()) {
+            case MONDAY:    return "Senin";
+            case TUESDAY:   return "Selasa";
+            case WEDNESDAY: return "Rabu";
+            case THURSDAY:  return "Kamis";
+            case FRIDAY:    return "Jumat";
+            case SATURDAY:  return "Sabtu";
+            default:        return "Minggu";
+        }
+    }
+
+    /** Nama bulan dalam bahasa Indonesia, mis. "November". */
+    static String namaBulan(String tanggalDb) {
+        java.time.LocalDate t = baca(tanggalDb);
+        if (t == null) return "";
+        String[] bulan = {"Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                "Juli", "Agustus", "September", "Oktober", "November", "Desember"};
+        return bulan[t.getMonthValue() - 1];
+    }
+
+    /** Tampilan ramah: "Kamis, 27 November 2026". */
+    static String tampilPanjang(String tanggalDb) {
+        java.time.LocalDate t = baca(tanggalDb);
+        if (t == null) return tanggalDb == null ? "" : tanggalDb;
+        return namaHari(tanggalDb) + ", " + t.getDayOfMonth() + " "
+                + namaBulan(tanggalDb) + " " + t.getYear();
+    }
+}
+
+/* =========================================================================
+ * 5. TEMA (warna, font, format) - mengikuti mockup
  * ========================================================================= */
 final class Tema {
     static final Color LATAR        = new Color(0xF4F7F8);
@@ -1028,8 +1271,17 @@ class KartuStatistik extends Kartu {
 }
 
 class TabelPesanan extends JTable {
+    // Indeks MODEL: dipakai saat memasang renderer, sebelum kolom dibuang.
     static final int KOL_STATUS = 8;
-    static final int KOL_TOTAL = 7;
+
+    // Indeks TAMPILAN: dipakai sesuaikanLebar() yang berjalan SETELAH kolom
+    // "Jenis", "Tarif", dan kolom aksi dibuang. Setelah pembuangan, urutan
+    // kolom yang terlihat adalah:
+    //   0 ID | 1 Nama | 2 Telepon | 3 Item | 4 Jumlah | 5 Total |
+    //   6 Status | 7 Tanggal | 8 Est. Selesai
+    static final int LIHAT_TOTAL = 5;
+    static final int LIHAT_TANGGAL = 7;
+    static final int LIHAT_EST_SELESAI = 8;
 
     TabelPesanan(ModelPesanan model) {
         super(model);
@@ -1072,6 +1324,7 @@ class TabelPesanan extends JTable {
         getColumnModel().getColumn(5).setCellRenderer(redup);
         getColumnModel().getColumn(7).setCellRenderer(tebal);
         getColumnModel().getColumn(9).setCellRenderer(redup);
+        getColumnModel().getColumn(10).setCellRenderer(redup);
         getColumnModel().getColumn(KOL_STATUS).setCellRenderer(new SelStatus());
 
         // Kolom yang dibuang dari tampilan karena sudah terwakili kolom lain:
@@ -1145,7 +1398,9 @@ class TabelPesanan extends JTable {
     // Nilai ini hanya preferensi: saat jendela mengecil JTable memampatkan kolom
     // sampai lebar minimum, dan saat melebar sisa ruang masuk ke kolom terakhir.
     void sesuaikanLebar() {
-        int[] minimum = {84, 84, 88, 54, 44, 86, 104, 88};
+        // Satu entri per kolom yang TERLIHAT. Tanggal & Est. Selesai butuh 104 px
+        // agar "25-11-2026" (10 karakter) terbaca utuh tanpa elipsis.
+        int[] minimum = {84, 84, 88, 54, 44, 86, 104, 104, 104};
         List<Integer> perlu = new ArrayList<>();
         int totalMin = 0, totalPerlu = 0;
         for (int i = 0; i < getColumnModel().getColumnCount(); i++) {
@@ -1166,17 +1421,19 @@ class TabelPesanan extends JTable {
         // terdorong keluar layar karena horizontal scrollbar JScrollPane dimatikan.
         // Nominal (Total) tidak pernah dipampatkan karena angka uang harus terbaca utuh.
         if (totalMin > ruang) {
-            int tetap = perlu.get(KOL_TOTAL);
+            int tetap = perlu.get(LIHAT_TOTAL);
             int sisa = Math.max(0, ruang - tetap);
             int sisaMin = 0;
             for (int i = 0; i < perlu.size(); i++) {
-                if (i != KOL_TOTAL) sisaMin += Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
+                if (i != LIHAT_TOTAL) sisaMin += Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
             }
             double skala = sisaMin == 0 ? 0 : (double) sisa / sisaMin;
             for (int i = 0; i < getColumnModel().getColumnCount(); i++) {
                 TableColumn kolom = getColumnModel().getColumn(i);
                 int min = Math.min(minimum[Math.min(i, minimum.length - 1)], perlu.get(i));
-                int hasil = i == KOL_TOTAL ? tetap : Math.max(46, (int) Math.floor(min * skala));
+                boolean tanggal = i == LIHAT_TANGGAL || i == LIHAT_EST_SELESAI;
+                int batasBawah = tanggal ? 96 : 46;
+                int hasil = i == LIHAT_TOTAL ? tetap : Math.max(batasBawah, (int) Math.floor(min * skala));
                 kolom.setMinWidth(hasil);
                 kolom.setPreferredWidth(hasil);
             }
@@ -1548,6 +1805,7 @@ public class LaundryApp extends JFrame {
     private final Kolom txtNama = new Kolom("Masukkan nama pelanggan");
     private final Kolom txtTelepon = new Kolom("Contoh: 081234567890");
     private final Kolom txtJumlah = new Kolom("0");
+    private final Kolom txtEstimasi = new Kolom("0");
     private final Segmen segJenis = new Segmen("Kiloan", "Satuan");
     private final Pilih pilihItem = new Pilih("Pakaian");
     private final Kolom txtCari = new Kolom("Cari nama pelanggan atau ID...");
@@ -1560,6 +1818,8 @@ public class LaundryApp extends JFrame {
     private final JLabel lblHarga = new JLabel("Rp 7.000 / kg");
     private final JLabel lblTotal = new JLabel("\u2014");
     private final JLabel lblBantuanItem = new JLabel("Terkunci untuk layanan kiloan");
+    private final JLabel lblEstimasiSelesai = new JLabel(" ");
+    private final JLabel lblGalatEstimasi = new JLabel(" ");
     private final JLabel lblGalatNama = new JLabel(" ");
     private final JLabel lblGalatTelepon = new JLabel(" ");
     private final JLabel lblGalatJumlah = new JLabel(" ");
@@ -1585,6 +1845,9 @@ public class LaundryApp extends JFrame {
     private final Tombol btnHapusCari = new Tombol("Hapus pencarian", Tombol.Jenis.GARIS);
 
     private int idEdit = -1;
+    // Menandai kasir sudah mengubah estimasi secara manual. Selama masih false,
+    // sistem terus memperbarui angkanya mengikuti jenis layanan yang dipilih.
+    private boolean estimasiManual = false;
     private String kataKunci = "";
     private String filterStatus = null;
     private Toast toastAktif;
@@ -1609,13 +1872,14 @@ public class LaundryApp extends JFrame {
         pasangAksi();
         perbaruiItem();
         hitungTotal();
+        saranEstimasi();
         muatData();
 
         Dimension layar = Toolkit.getDefaultToolkit().getScreenSize();
         int w = Math.min(1400, layar.width - 40);
         int h = Math.min(950, layar.height - 40);
         setSize(w, h);
-        setMinimumSize(new Dimension(1120, 760));
+        setMinimumSize(new Dimension(1120, 620));
         setLocationRelativeTo(null);
 
         // Saat jendela di-resize, bagi ulang tinggi baris tabel.
@@ -1707,6 +1971,18 @@ public class LaundryApp extends JFrame {
         isi.add(txtJumlah);
         isi.add(pesanGalat(lblGalatJumlah));
 
+        isi.add(Box.createVerticalStrut(4));
+
+        // Estimasi waktu selesai: nilai awal diisi sistem, tetap bisa diubah kasir.
+        isi.add(labelForm("Estimasi Selesai (hari kerja)"));
+        isi.add(Box.createVerticalStrut(3));
+        isi.add(txtEstimasi);
+        isi.add(pesanGalat(lblGalatEstimasi));
+        lblEstimasiSelesai.setFont(Tema.f(11f, false));
+        lblEstimasiSelesai.setForeground(Tema.TEAL);
+        lblEstimasiSelesai.setAlignmentX(LEFT_ALIGNMENT);
+        isi.add(lblEstimasiSelesai);
+
         isi.add(Box.createVerticalStrut(6));
 
         JPanel barisHarga = new JPanel(new BorderLayout());
@@ -1783,11 +2059,7 @@ public class LaundryApp extends JFrame {
             if (komponen instanceof JComponent) ((JComponent) komponen).setAlignmentX(LEFT_ALIGNMENT);
         }
 
-        JPanel isiTinggi = new JPanel(new BorderLayout());
-        isiTinggi.setOpaque(false);
-        isiTinggi.add(atasForm, BorderLayout.NORTH);
-        isiTinggi.add(kakiForm, BorderLayout.SOUTH);
-        bungkus.add(isiTinggi, BorderLayout.CENTER);
+        bungkus.add(atasForm, BorderLayout.CENTER);
 
         // Semua isi form rata kiri (BoxLayout butuh alignmentX yang sama)
         for (Component komponen : isi.getComponents()) {
@@ -1805,7 +2077,18 @@ public class LaundryApp extends JFrame {
         gulung.getVerticalScrollBar().setPreferredSize(new Dimension(8, 0));
         gulung.getVerticalScrollBar().setUI(new GulirTipis());
         gulung.getVerticalScrollBar().setOpaque(false);
+
+        // Tombol sengaja diletakkan DI LUAR area scroll: hanya isian form yang
+        // bisa digulir, tombol Tambah/Bersihkan selalu terlihat di dasar kartu
+        // walau layar pendek (mis. laptop 768 px) atau form bertambah panjang.
+        JPanel kakiKartu = new JPanel();
+        kakiKartu.setOpaque(false);
+        kakiKartu.setLayout(new BoxLayout(kakiKartu, BoxLayout.Y_AXIS));
+        kakiKartu.setBorder(new EmptyBorder(8, 0, 0, 2));
+        kakiKartu.add(kakiForm);
+
         kartu.add(gulung, BorderLayout.CENTER);
+        kartu.add(kakiKartu, BorderLayout.SOUTH);
         return kartu;
     }
 
@@ -1997,12 +2280,23 @@ public class LaundryApp extends JFrame {
         segJenis.saatUbah(() -> {
             perbaruiItem();
             hitungTotal();
+            saranEstimasi();
         });
-        pilihItem.saatUbah(this::hitungTotal);
+        pilihItem.saatUbah(() -> {
+            hitungTotal();
+            saranEstimasi();
+        });
         txtJumlah.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { hitungTotal(); }
             @Override public void removeUpdate(DocumentEvent e) { hitungTotal(); }
             @Override public void changedUpdate(DocumentEvent e) { hitungTotal(); }
+        });
+        // Begitu kasir mengetik sendiri di kolom estimasi, sistem berhenti
+        // menimpa angkanya dan hanya memperbarui perkiraan tanggal selesai.
+        txtEstimasi.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { estimasiDiketik(); }
+            @Override public void removeUpdate(DocumentEvent e) { estimasiDiketik(); }
+            @Override public void changedUpdate(DocumentEvent e) { estimasiDiketik(); }
         });
         // Nama yang sedang diketik tidak boleh memaksa kolom tabel melebar, jadi
         // lebar kolom selalu diukur ulang dari data yang benar-benar tersimpan.
@@ -2139,7 +2433,7 @@ public class LaundryApp extends JFrame {
     private void simpanStatus(Pesanan p, String statusBaru) {
         try (Connection c = DB.getKoneksi(); PreparedStatement ps = c.prepareStatement("UPDATE pesanan SET status=? WHERE id=?")) {
             ps.setString(1, statusBaru);
-            ps.setInt(2, p.id);
+            ps.setInt(2, p.getId());
             ps.executeUpdate();
             muatData();
             tampilkanToast("Status pesanan diubah menjadi " + statusBaru);
@@ -2147,7 +2441,7 @@ public class LaundryApp extends JFrame {
             JOptionPane.showMessageDialog(this, "Gagal mengubah status.\n" + ex.getMessage(), "Error Database", JOptionPane.ERROR_MESSAGE);
         }
         // Baru berubah ke Selesai -> kabari pelanggan lewat WhatsApp (di latar belakang).
-        if ("Selesai".equals(statusBaru) && !"Selesai".equals(p.status)) {
+        if ("Selesai".equals(statusBaru) && !"Selesai".equals(p.getStatus())) {
             kirimWa(p, "selesai", "Notifikasi selesai");
         }
     }
@@ -2221,15 +2515,17 @@ public class LaundryApp extends JFrame {
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"mode\":\"").append(mode).append("\",");
         sb.append("\"kode\":\"").append(kodeJson(p.kodeId())).append("\",");
-        sb.append("\"nama\":\"").append(kodeJson(p.nama)).append("\",");
-        sb.append("\"telepon\":\"").append(kodeJson(p.telepon)).append("\",");
-        sb.append("\"jenis\":\"").append(kodeJson(p.jenis)).append("\",");
-        sb.append("\"item\":\"").append(kodeJson(p.item)).append("\",");
-        sb.append("\"jumlah\":\"").append(ModelPesanan.angkaJumlah(p.jumlah)).append("\",");
-        sb.append("\"tarif\":").append(Math.round(p.tarif)).append(",");
-        sb.append("\"total\":").append(Math.round(p.total)).append(",");
-        sb.append("\"status\":\"").append(kodeJson(p.status)).append("\",");
-        sb.append("\"tanggal\":\"").append(kodeJson(p.tanggal)).append("\"");
+        sb.append("\"nama\":\"").append(kodeJson(p.getNama())).append("\",");
+        sb.append("\"telepon\":\"").append(kodeJson(p.getTelepon())).append("\",");
+        sb.append("\"jenis\":\"").append(kodeJson(p.getJenis())).append("\",");
+        sb.append("\"item\":\"").append(kodeJson(p.getItem())).append("\",");
+        sb.append("\"jumlah\":\"").append(ModelPesanan.angkaJumlah(p.getJumlah())).append("\",");
+        sb.append("\"tarif\":").append(Math.round(p.getTarif())).append(",");
+        sb.append("\"total\":").append(Math.round(p.getTotal())).append(",");
+        sb.append("\"status\":\"").append(kodeJson(p.getStatus())).append("\",");
+        sb.append("\"tanggal\":\"").append(kodeJson(p.getTanggal())).append("\",");
+        sb.append("\"estimasi_hari\":").append(p.getEstimasiHari()).append(",");
+        sb.append("\"tanggal_selesai\":\"").append(kodeJson(p.getTanggalSelesai())).append("\",");
         sb.append("}");
         return sb.toString();
     }
@@ -2259,16 +2555,18 @@ public class LaundryApp extends JFrame {
              ResultSet r = s.executeQuery("SELECT * FROM pesanan ORDER BY id DESC")) {
             while (r.next()) {
                 Pesanan p = new Pesanan();
-                p.id = r.getInt("id");
-                p.nama = teks(r.getString("nama"));
-                p.telepon = teks(r.getString("telepon"));
-                p.jenis = teks(r.getString("jenis"));
-                p.item = teks(r.getString("item"));
-                p.jumlah = r.getDouble("jumlah");
-                p.tarif = r.getDouble("tarif");
-                p.total = r.getDouble("total");
-                p.status = teks(r.getString("status"));
-                p.tanggal = teks(r.getString("tanggal"));
+                p.setId(r.getInt("id"));
+                p.setNama(teks(r.getString("nama")));
+                p.setTelepon(teks(r.getString("telepon")));
+                p.setJenis(teks(r.getString("jenis")));
+                p.setItem(teks(r.getString("item")));
+                p.setJumlah(r.getDouble("jumlah"));
+                p.setTarif(r.getDouble("tarif"));
+                p.setTotal(r.getDouble("total"));
+                p.setStatus(teks(r.getString("status")));
+                p.setTanggal(teks(r.getString("tanggal")));
+                p.setEstimasiHari(r.getInt("estimasi_hari"));
+                p.setTanggalSelesai(teks(r.getString("tanggal_selesai")));
                 data.add(p);
             }
         } catch (Exception e) {
@@ -2294,9 +2592,9 @@ public class LaundryApp extends JFrame {
             keluarModeEdit();
             return;
         }
-        segJenis.setPilihan(terkini.jenis);
+        segJenis.setPilihan(terkini.getJenis());
         perbaruiItem();
-        pilihItem.setPilihan(terkini.item);
+        pilihItem.setPilihan(terkini.getItem());
         hitungTotal();
     }
 
@@ -2305,10 +2603,10 @@ public class LaundryApp extends JFrame {
         long pendapatan = 0;
         for (Pesanan p : model.semua()) {
             total++;
-            if ("Proses".equals(p.status)) proses++;
-            if ("Selesai".equals(p.status)) {
+            if ("Proses".equals(p.getStatus())) proses++;
+            if ("Selesai".equals(p.getStatus())) {
                 selesai++;
-                pendapatan += Math.round(p.total);
+                pendapatan += Math.round(p.getTotal());
             }
         }
         kartuTotal.setNilai(String.valueOf(total));
@@ -2322,16 +2620,23 @@ public class LaundryApp extends JFrame {
         if (!validasi()) return;
 
         LayananLaundry layanan = buatLayanan();
-        String sql = "INSERT INTO pesanan (nama, telepon, jenis, item, jumlah, tarif, total, status, tanggal) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, 'Belum Diproses', CURRENT_DATE)";
+        int estimasi = estimasiAngka();
+        String tanggalPesanan = Tanggal.hariIni();
+        String tanggalSelesai = Tanggal.hitungSelesai(tanggalPesanan, estimasi);
+        String sql = "INSERT INTO pesanan (nama, telepon, jenis, item, jumlah, tarif, total, "
+                + "status, tanggal, estimasi_hari, tanggal_selesai) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, 'Belum Diproses', ?, ?, ?)";
         try (Connection c = DB.getKoneksi(); PreparedStatement p = c.prepareStatement(sql)) {
             p.setString(1, txtNama.getText().trim());
             p.setString(2, txtTelepon.getText().trim());
             p.setString(3, segJenis.getPilihan());
             p.setString(4, pilihItem.getPilihan());
-            p.setDouble(5, layanan.jumlah);
+            p.setDouble(5, layanan.getJumlah());
             p.setLong(6, Math.round(layanan.tarifSatuan()));
             p.setLong(7, Math.round(layanan.hitungTotal()));
+            p.setString(8, tanggalPesanan);
+            p.setInt(9, estimasi);
+            p.setString(10, tanggalSelesai);
             p.executeUpdate();
 
             String kode = idBerikutnya();
@@ -2348,17 +2653,24 @@ public class LaundryApp extends JFrame {
         if (!validasi()) return;
 
         LayananLaundry layanan = buatLayanan();
+        int estimasi = estimasiAngka();
+        Pesanan lama = cariPesanan(idEdit);
+        String tanggalPesanan = (lama != null && !lama.getTanggal().isEmpty())
+                ? lama.getTanggal() : Tanggal.hariIni();
+        String tanggalSelesai = Tanggal.hitungSelesai(tanggalPesanan, estimasi);
         String sql = "UPDATE pesanan SET nama = ?, telepon = ?, jenis = ?, item = ?, jumlah = ?, "
-                + "tarif = ?, total = ? WHERE id = ?";
+                + "tarif = ?, total = ?, estimasi_hari = ?, tanggal_selesai = ? WHERE id = ?";
         try (Connection c = DB.getKoneksi(); PreparedStatement p = c.prepareStatement(sql)) {
             p.setString(1, txtNama.getText().trim());
             p.setString(2, txtTelepon.getText().trim());
             p.setString(3, segJenis.getPilihan());
             p.setString(4, pilihItem.getPilihan());
-            p.setDouble(5, layanan.jumlah);
+            p.setDouble(5, layanan.getJumlah());
             p.setLong(6, Math.round(layanan.tarifSatuan()));
             p.setLong(7, Math.round(layanan.hitungTotal()));
-            p.setInt(8, idEdit);
+            p.setInt(8, estimasi);
+            p.setString(9, tanggalSelesai);
+            p.setInt(10, idEdit);
             p.executeUpdate();
 
             String kode = String.format("LND-%03d", idEdit);
@@ -2371,12 +2683,12 @@ public class LaundryApp extends JFrame {
     }
 
     private void gantiStatus(Pesanan p) {
-        String baru = "Belum Diproses".equals(p.status) ? "Proses"
-                : "Proses".equals(p.status) ? "Selesai" : "Belum Diproses";
+        String baru = "Belum Diproses".equals(p.getStatus()) ? "Proses"
+                : "Proses".equals(p.getStatus()) ? "Selesai" : "Belum Diproses";
         try (Connection c = DB.getKoneksi();
              PreparedStatement s = c.prepareStatement("UPDATE pesanan SET status = ? WHERE id = ?")) {
             s.setString(1, baru);
-            s.setInt(2, p.id);
+            s.setInt(2, p.getId());
             s.executeUpdate();
             muatData();
             tampilkanToast("Status " + p.kodeId() + " menjadi " + baru);
@@ -2388,7 +2700,7 @@ public class LaundryApp extends JFrame {
     private void hapusPesanan(Pesanan p) {
         try (Connection c = DB.getKoneksi();
              PreparedStatement s = c.prepareStatement("DELETE FROM pesanan WHERE id = ?")) {
-            s.setInt(1, p.id);
+            s.setInt(1, p.getId());
             s.executeUpdate();
             keluarModeEdit();
             muatData();
@@ -2419,6 +2731,13 @@ public class LaundryApp extends JFrame {
         lblGalatJumlah.setText(jumlahSalah ? "Jumlah harus lebih dari 0." : "");
         lblGalatJumlah.setVisible(jumlahSalah);
         if (jumlahSalah) ok = false;
+
+        boolean estimasiSalah = estimasiAngka() <= 0;
+        txtEstimasi.setGalat(estimasiSalah);
+        lblGalatEstimasi.setText(estimasiSalah
+                ? "Estimasi minimal 1 hari kerja." : "");
+        lblGalatEstimasi.setVisible(estimasiSalah);
+        if (estimasiSalah) ok = false;
 
         revalidate();
         return ok;
@@ -2460,6 +2779,61 @@ public class LaundryApp extends JFrame {
         }
     }
 
+    /** Dipanggil setiap kali isi kolom estimasi berubah karena diketik kasir. */
+    private void estimasiDiketik() {
+        if (!estimasiManual && !txtEstimasi.getText().trim().isEmpty()) {
+            estimasiManual = true;
+        }
+        perbaruiLabelEstimasi();
+    }
+
+    /** Angka estimasi yang sedang terisi di form (0 bila kosong/tidak valid). */
+    private int estimasiAngka() {
+        String t = txtEstimasi.getText().trim();
+        if (t.isEmpty()) return 0;
+        try {
+            return Math.max(0, Integer.parseInt(t));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Mengisi ulang estimasi dengan SARAN dari sistem, berdasarkan jenis
+     * layanan yang dipilih. Hanya berjalan selama kasir belum mengubah
+     * angkanya sendiri (estimasiManual == false).
+     */
+    private void saranEstimasi() {
+        if (estimasiManual) {
+            perbaruiLabelEstimasi();
+            return;
+        }
+        int saran = buatLayanan().estimasiHariDefault();
+        txtEstimasi.setText(String.valueOf(saran));
+        perbaruiLabelEstimasi();
+    }
+
+    /**
+     * Menghitung dan menampilkan tanggal selesai dari estimasi yang sedang
+     * terisi, supaya kasir langsung melihat dampaknya sebelum menyimpan.
+     */
+    private void perbaruiLabelEstimasi() {
+        int hari = estimasiAngka();
+        if (hari <= 0) {
+            lblEstimasiSelesai.setText("Isi minimal 1 hari kerja.");
+            lblEstimasiSelesai.setForeground(Tema.MERAH);
+            return;
+        }
+        String dasar = Tanggal.hariIni();
+        if (idEdit >= 0) {
+            Pesanan p = cariPesanan(idEdit);
+            if (p != null && !p.getTanggal().isEmpty()) dasar = p.getTanggal();
+        }
+        String selesai = Tanggal.hitungSelesai(dasar, hari);
+        lblEstimasiSelesai.setForeground(Tema.TEAL);
+        lblEstimasiSelesai.setText("Perkiraan selesai: " + Tanggal.tampilPanjang(selesai));
+    }
+
     private void perbaruiItem() {
         boolean kiloan = "Kiloan".equals(segJenis.getPilihan());
         List<String> opsi = new ArrayList<>();
@@ -2476,16 +2850,21 @@ public class LaundryApp extends JFrame {
 
     private void masukModeEdit(Pesanan p) {
         if (p == null) return;
-        idEdit = p.id;
+        idEdit = p.getId();
         lblJudulForm.setText("Edit pesanan");
         lblSubForm.setText("Ubah data pesanan yang dipilih.");
         lencanaId.setTeks(p.kodeId());
-        txtNama.setText(p.nama);
-        txtTelepon.setText(p.telepon);
-        segJenis.setPilihan(p.jenis);
+        txtNama.setText(p.getNama());
+        txtTelepon.setText(p.getTelepon());
+        segJenis.setPilihan(p.getJenis());
         perbaruiItem();
-        pilihItem.setPilihan(p.item);
-        txtJumlah.setText(ModelPesanan.angkaJumlah(p.jumlah));
+        pilihItem.setPilihan(p.getItem());
+        txtJumlah.setText(ModelPesanan.angkaJumlah(p.getJumlah()));
+        // Saat mengedit, estimasi yang tersimpan dianggap keputusan kasir,
+        // jadi sistem tidak menimpanya lagi secara otomatis.
+        estimasiManual = true;
+        txtEstimasi.setText(String.valueOf(p.getEstimasiHari()));
+        perbaruiLabelEstimasi();
         btnUtama.setText("Simpan Perubahan");
         btnKedua.setText("Batal Edit");
         btnHapus.setVisible(true);
@@ -2513,6 +2892,7 @@ public class LaundryApp extends JFrame {
         txtNama.setText("");
         txtTelepon.setText("");
         txtJumlah.setText("");
+        estimasiManual = false;
         segJenis.setPilihan("Kiloan");
         perbaruiItem();
         pilihItem.setPilihan("Pakaian");
@@ -2530,13 +2910,13 @@ public class LaundryApp extends JFrame {
 
     private String idBerikutnya() {
         int maks = 0;
-        for (Pesanan p : model.semua()) maks = Math.max(maks, p.id);
+        for (Pesanan p : model.semua()) maks = Math.max(maks, p.getId());
         return String.format("LND-%03d", maks + 1);
     }
 
     private Pesanan cariPesanan(int id) {
         for (Pesanan p : model.semua()) {
-            if (p.id == id) return p;
+            if (p.getId() == id) return p;
         }
         return null;
     }
@@ -2549,10 +2929,10 @@ public class LaundryApp extends JFrame {
             public boolean include(Entry<? extends ModelPesanan, ? extends Integer> entry) {
                 Pesanan p = entry.getModel().ambil(entry.getIdentifier());
                 boolean cocokKata = kataKunci.isEmpty()
-                        || p.nama.toLowerCase().contains(kataKunci)
+                        || p.getNama().toLowerCase().contains(kataKunci)
                         || p.kodeId().toLowerCase().contains(kataKunci)
-                        || p.telepon.toLowerCase().contains(kataKunci);
-                boolean cocokStatus = filterStatus == null || filterStatus.equals(p.status);
+                        || p.getTelepon().toLowerCase().contains(kataKunci);
+                boolean cocokStatus = filterStatus == null || filterStatus.equals(p.getStatus());
                 return cocokKata && cocokStatus;
             }
         });
@@ -2612,7 +2992,7 @@ public class LaundryApp extends JFrame {
 
     private void konfirmasiHapus(Pesanan p) {
         final JLayeredPane lapisan = getLayeredPane();
-        DialogHapus dialog = new DialogHapus(p.kodeId(), p.nama,
+        DialogHapus dialog = new DialogHapus(p.kodeId(), p.getNama(),
                 () -> {
                     lapisan.remove(dialogAktif);
                     lapisan.repaint();
@@ -2662,16 +3042,18 @@ public class LaundryApp extends JFrame {
                  ResultSet r = s.executeQuery("SELECT * FROM pesanan ORDER BY id DESC")) {
                 while (r.next()) {
                     Pesanan p = new Pesanan();
-                    p.id = r.getInt("id");
-                    p.nama = teks(r.getString("nama"));
-                    p.telepon = teks(r.getString("telepon"));
-                    p.jenis = teks(r.getString("jenis"));
-                    p.item = teks(r.getString("item"));
-                    p.jumlah = r.getDouble("jumlah");
-                    p.tarif = r.getDouble("tarif");
-                    p.total = r.getDouble("total");
-                    p.status = teks(r.getString("status"));
-                    p.tanggal = teks(r.getString("tanggal"));
+                    p.setId(r.getInt("id"));
+                    p.setNama(teks(r.getString("nama")));
+                    p.setTelepon(teks(r.getString("telepon")));
+                    p.setJenis(teks(r.getString("jenis")));
+                    p.setItem(teks(r.getString("item")));
+                    p.setJumlah(r.getDouble("jumlah"));
+                    p.setTarif(r.getDouble("tarif"));
+                    p.setTotal(r.getDouble("total"));
+                    p.setStatus(teks(r.getString("status")));
+                    p.setTanggal(teks(r.getString("tanggal")));
+                    p.setEstimasiHari(r.getInt("estimasi_hari"));
+                    p.setTanggalSelesai(teks(r.getString("tanggal_selesai")));
                     baris.add(p);
                 }
             }
@@ -2679,10 +3061,10 @@ public class LaundryApp extends JFrame {
             int proses = 0, selesai = 0;
             long pendapatan = 0;
             for (Pesanan p : baris) {
-                if ("Proses".equals(p.status)) proses++;
-                if ("Selesai".equals(p.status)) {
+                if ("Proses".equals(p.getStatus())) proses++;
+                if ("Selesai".equals(p.getStatus())) {
                     selesai++;
-                    pendapatan += Math.round(p.total);
+                    pendapatan += Math.round(p.getTotal());
                 }
             }
             System.out.println("Database   : " + DB.infoLokasi());

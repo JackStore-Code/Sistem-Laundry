@@ -1,0 +1,95 @@
+============================================================================
+TEKS YANG HARUS DIGANTI SERENTAK (dipakai sebagai nilai logika/data)
+============================================================================
+
+"Kiloan"   [NILAI + TAMPILAN]
+   10 baris: 269, 307, 343, 430, 1809, 2758, 2765, 2767, 2838, 2896
+   peran: dibanding .equals(), disimpan lewat setter, nilai awal field, nilai kembalian
+
+"Selesai"   [NILAI + TAMPILAN]
+   8 baris: 586, 592, 1837, 2381, 2444, 2607, 2687, 3065
+   peran: anggota daftar nilai, dibanding .equals()
+
+"Proses"   [NILAI saja (tidak tampil)]
+   7 baris: 587, 593, 2381, 2606, 2686, 2687, 3064
+   peran: anggota daftar nilai, dibanding .equals()
+
+"Belum Diproses"   [NILAI saja (tidak tampil)]
+   5 baris: 312, 364, 2381, 2686, 2687
+   peran: anggota daftar nilai, dibanding .equals(), nilai awal field
+
+"Pakaian"   [NILAI + TAMPILAN]
+   5 baris: 308, 347, 1810, 2840, 2898
+   peran: disimpan lewat setter, nilai awal field
+
+"Jenis"   [NILAI saja (tidak tampil)]
+   4 baris: 386, 1278, 1331, 1335
+   peran: anggota daftar nilai
+
+"Sepatu"   [NILAI saja (tidak tampil)]
+   4 baris: 102, 113, 2843, 3079
+   peran: dibanding .equals()
+
+"Tarif"   [NILAI saja (tidak tampil)]
+   4 baris: 387, 1278, 1332, 1335
+   peran: anggota daftar nilai
+
+"Jaket"   [NILAI saja (tidak tampil)]
+   3 baris: 103, 114, 2842
+   peran: dibanding .equals()
+
+"Kamis"   [NILAI saja (tidak tampil)]
+   3 baris: 503, 511, 604
+   peran: nilai kembalian
+
+"Karpet"   [NILAI saja (tidak tampil)]
+   3 baris: 104, 112, 2844
+   peran: dibanding .equals()
+
+"Status: Semua"   [NILAI + TAMPILAN]
+   3 baris: 1812, 2276, 2331
+   peran: dibanding .equals(), disimpan lewat setter
+
+"Jumat"   [NILAI saja (tidak tampil)]
+   2 baris: 512, 604
+   peran: nilai kembalian
+
+"Minggu"   [NILAI saja (tidak tampil)]
+   2 baris: 514, 604
+   peran: nilai kembalian
+
+"Rabu"   [NILAI saja (tidak tampil)]
+   2 baris: 510, 604
+   peran: nilai kembalian
+
+"Sabtu"   [NILAI saja (tidak tampil)]
+   2 baris: 513, 604
+   peran: nilai kembalian
+
+"Satuan"   [NILAI saja (tidak tampil)]
+   2 baris: 343, 1809
+   peran: dibanding .equals()
+
+"Selasa"   [NILAI saja (tidak tampil)]
+   2 baris: 509, 604
+   peran: nilai kembalian
+
+"Senin"   [NILAI saja (tidak tampil)]
+   2 baris: 508, 604
+   peran: nilai kembalian
+
+"Status: "   [NILAI saja (tidak tampil)]
+   1 baris: 2276
+   peran: dipotong/dicocokkan .replace/split/contains
+
+"ditolak server"   [NILAI saja (tidak tampil)]
+   1 baris: 2509
+   peran: nilai kembalian
+
+"nomor telepon tidak valid"   [NILAI saja (tidak tampil)]
+   1 baris: 2508
+   peran: nilai kembalian
+
+============================================================================
+22 teks perlu diganti serentak.
+============================================================================

@@ -26,6 +26,8 @@ Thumbs.db
 
 # Hasil uji asap / build lokal (dev)
 .build/
+.build_v2/
+.uji_db/
 .smoke/
 
 # Konfigurasi lokal (berisi kunci API) - pakai config.properties.example
